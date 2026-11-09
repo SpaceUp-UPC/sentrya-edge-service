@@ -20,6 +20,13 @@ def _bad_request(error):
     return jsonify({"error": str(error)}), 400
 
 
+@bp.before_request
+def _simulation_gate():
+    """Los /simulate/* solo existen con ENABLE_SIMULATION=true."""
+    if request.path.startswith(bp.url_prefix + "/simulate/") and not _edge().settings.enable_simulation:
+        return jsonify({"error": "simulacion deshabilitada"}), 404
+
+
 @bp.post("/readings")
 def post_reading():
     body = request.get_json(silent=True)
@@ -97,14 +104,32 @@ def post_demo_validation():
 @bp.post("/simulate/security/person")
 def post_simulate_person():
     edge = _edge()
-    if not edge.settings.enable_simulation:
-        return jsonify({"error": "simulacion deshabilitada"}), 404
     body = request.get_json(silent=True)
     if not isinstance(body, dict) or not isinstance(body.get("known"), bool):
         raise ValidationError("known (booleano) es obligatorio")
     if not hasattr(edge.vision, "inject"):
         return jsonify({"error": "el detector activo no es el mock"}), 409
     return jsonify({"known": body["known"], "event": edge.security.simulate_person(body["known"])})
+
+
+@bp.post("/simulate/readings")
+def post_simulate_readings():
+    """Lecturas falsas por la misma via que una real. Un objeto o {"readings": [...]}."""
+    body = request.get_json(silent=True)
+    items = body.get("readings") if isinstance(body, dict) and "readings" in body else [body]
+    if not isinstance(items, list) or not items or not all(isinstance(i, dict) for i in items):
+        raise ValidationError("se espera una lectura o {\"readings\": [lecturas]}")
+    results = [_edge().sensor_manager.ingest_reading(item) for item in items]
+    return jsonify(results[0] if len(items) == 1 and "readings" not in body
+                   else {"readings": results}), 201
+
+
+@bp.post("/demo/reset")
+def post_demo_reset():
+    results = _edge().reset()
+    return jsonify({"reset": True, "commands": [
+        {"commandId": r.command_id, "actuator": r.actuator, "action": r.action,
+         "status": r.status} for r in results]})
 
 
 @bp.get("/status")

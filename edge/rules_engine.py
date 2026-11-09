@@ -9,6 +9,9 @@ from typing import Any, Callable, Protocol
 
 from edge.shared import state_store
 from edge.shared.clock import iso_utc
+from edge.shared.logging import get_logger
+
+log = get_logger("rules")
 
 
 @dataclass(frozen=True)
@@ -64,9 +67,28 @@ class RulesEngine:
         state, _ = state_store.load_state(session, module.name)
         state = state if state is not None else module.initial_state()
         new_state, actions, events = module.evaluate(rule_input, state, self.clock)
+        if new_state["state"] != state["state"]:
+            log.info("[%s] %s -> %s (motivo: %s)", module.name, state["state"],
+                     new_state["state"], self._reason(rule_input))
         state_store.save_state(session, module.name, new_state, iso_utc(self.clock.now_utc()))
         return Evaluation(module.name, new_state, list(actions), list(events),
                           getattr(module, "publish_readings", True))
+
+    @staticmethod
+    def _reason(rule_input) -> str:
+        if rule_input.kind == "reading":
+            return f"lectura {rule_input.device_key}={rule_input.value}"
+        return f"entrada {rule_input.kind}"
+
+    def reset(self, session) -> None:
+        """Demo: todos los modulos vuelven a su estado inicial (modo AUTO incluido)."""
+        for module in self.modules.values():
+            state, _ = state_store.load_state(session, module.name)
+            initial = module.initial_state()
+            if state is not None and state["state"] != initial["state"]:
+                log.info("[%s] %s -> %s (motivo: reinicio de demo)", module.name,
+                         state["state"], initial["state"])
+            state_store.save_state(session, module.name, initial, iso_utc(self.clock.now_utc()))
 
     def handle_reading(self, session, device_key, metric_type, value, extra=None) -> list[Evaluation]:
         rule_input = RuleInput("reading", self.thresholds, device_key, metric_type, value,
