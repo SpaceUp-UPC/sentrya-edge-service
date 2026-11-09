@@ -40,10 +40,10 @@ ESP32 x3 (C++) ──HTTP/JSON (red local)──► EDGE (Python/Flask, laptop U
 
 ## 4. Stack
 
-- Python 3.11+ con Flask (escuchando en `0.0.0.0`). Cliente MQTT `paho-mqtt` 2.x, con `CallbackAPIVersion.VERSION2`.
-- SQLite mediante SQLAlchemy o Peewee.
+- Python 3.11+ con Flask (escuchando en `0.0.0.0`). Servidor integrado de Flask con `threaded=True` y **`use_reloader=False`** (el reloader duplicaría los hilos de MQTT y cámara). Nada de varios workers. Cliente MQTT `paho-mqtt` 2.x, con `CallbackAPIVersion.VERSION2`.
+- SQLite mediante **SQLAlchemy 2.x**, en modo WAL.
 - OpenCV (`cv2.VideoCapture("http://<ip-esp32cam>:81/stream")`) para leer la cámara.
-- Detección de persona y reconocimiento facial detrás de interfaces. Implementaciones sugeridas: un detector ligero de personas (por ejemplo, YOLOv8n o MobileNet‑SSD con OpenCV DNN) y reconocimiento con `face_recognition` u OpenCV YuNet+SFace. Debe existir siempre una implementación **simulada**.
+- Detección de persona y reconocimiento facial detrás de interfaces, **solo con OpenCV DNN**: MobileNet‑SSD (o YOLO exportado a ONNX) para personas y YuNet+SFace para rostros. No usar `face_recognition` (dlib) ni `ultralytics` (PyTorch). La implementación **simulada** es la de por defecto y siempre debe existir.
 - `requests` para enviar órdenes a las ESP32.
 - Pruebas con pytest, con un reloj inyectable.
 - Configuración por `.env` y `config/devices.yaml`.
@@ -92,12 +92,17 @@ Los umbrales **nunca se escriben en el código**. Se cargan de `config/profiles/
 | Humedad: encender por debajo de | 40 % HR | Calibrar con la humedad de la sala |
 | Humedad: apagar al llegar a | 50 % HR | 55 % HR (maqueta) |
 | Humedad alta | > 60 % HR | Calibrar |
+| Histéresis de humedad alta | 3 % HR | 3 % HR |
 | Lecturas consecutivas para confirmar | 3 | 3 |
 | Ventana de correlación de seguridad | 10 s | 10 s |
 | Ventana de validación del usuario | 30 s | 30 s |
+| Duración máxima de la sirena | 300 s | 15 s |
+| Cooldown de persona desconocida | 10 s | 10 s |
 | Confianza de persona / reconocimiento | 0.70 / 0.80 | 0.70 / 0.80 |
 
 Los valores del perfil demo son orientativos; se ajustan en el archivo. Un endpoint de simulación permite inyectar lecturas si un sensor falla durante la demo (§8).
+
+**Precedencia:** el YAML del perfil activo manda **en cada arranque** (para calibrar basta con editar el archivo y reiniciar). SQLite guarda la copia vigente. Si llega `config` desde la nube, se aplica y se guarda hasta el próximo reinicio.
 
 ## 7. Reglas
 
@@ -109,6 +114,7 @@ Los valores del perfil demo son orientativos; se ajustan en el archivo. Un endpo
 | CRITICAL | **3 lecturas consecutivas ≥ T2** | Ventilador al 100 %, buzzer encendido, publicar escalamiento | 1 s, o el mínimo del sensor si es mayor |
 
 - Una lectura ≥ T2 sin confirmar mantiene el estado en WARNING.
+- El escalamiento se publica **una sola vez al entrar** a CRITICAL. Se vuelve a habilitar al salir de CRITICAL.
 - Para bajar de estado: CRITICAL pasa a WARNING por debajo de T2 − histéresis; WARNING pasa a NORMAL por debajo de T1 − histéresis.
 - Opcional: un aumento ≥ 8 °C/min lleva a CRITICAL (desactivado por defecto).
 - No hay A/C (es una desviación del informe).
@@ -117,8 +123,9 @@ Los valores del perfil demo son orientativos; se ajustan en el archivo. Un endpo
 - 3 lecturas consecutivas por debajo del umbral de encendido: estado LOW, humidificador encendido.
 - Al llegar al umbral de apagado: humidificador apagado. Si está dentro del rango, el estado pasa a NORMAL.
 - 3 lecturas consecutivas por encima del umbral alto: estado HIGH, humidificador apagado.
+- Salida de HIGH: 3 lecturas consecutivas por debajo de (umbral alto − histéresis de humedad alta): estado NORMAL.
 - **Sensor caído** (sin lecturas durante 3 × el intervalo, o el DHT22 devuelve error): humidificador apagado y evento `device_error`.
-- **Modo AUTO / MANUAL:** en MANUAL las reglas no encienden el humidificador, pero sí lo apagan por sensor caído o humedad alta.
+- **Modo AUTO / MANUAL:** en MANUAL las reglas no encienden el humidificador, pero sí lo apagan por sensor caído o humedad alta. El modo se cambia con `/demo/commands` (`{ "deviceKey": "humidifier", "action": "mode", "params": { "mode": "manual" } }`), y luego también por el tópico `commands`. Se guarda en `subsystem_state`.
 - Cada cambio de estado se publica de inmediato, sin esperar la telemetría de 60 s.
 
 ### Seguridad (Nodo 1)
@@ -131,6 +138,9 @@ Los valores del perfil demo son orientativos; se ajustan en el archivo. Un endpo
      - Si el usuario confirma, o no responde en 30 s: se publica el escalamiento.
      - Si el usuario rechaza: sirena apagada, estado MONITORING.
   4. Mientras está abierta la ventana, no se dispara otra intrusión.
+  5. Tras confirmar o vencer la ventana, la sirena se apaga sola al cumplir la duración máxima de la sirena y el estado vuelve a MONITORING (así la demo se puede repetir). La cerradura sigue bloqueada.
+- **Persona desconocida, sin avalancha:** la inferencia corre a 2–5 fps. El servicio guarda la marca de tiempo de la última persona desconocida vista; la correlación compara esa marca con el último disparo de sonido. Solo emite evento al aparecer la persona (de ausente a presente) y respeta el cooldown.
+- **Reinicio con una ventana abierta:** al arrancar, todo evento de seguridad abierto se cierra como timeout y se publica el escalamiento. No se retoma la ventana.
 - La validación llega por MQTT (§9) o por el endpoint local de demo (§8).
 - **La cerradura nunca se desbloquea por una regla local.** Solo por una orden explícita (remota o del endpoint de demo).
 - **Semántica de la cerradura:** configurable con `LOCK_ENERGIZE_TO_UNLOCK` (por defecto `true`: sin energía está bloqueada). En ese caso, bloquear = relé apagado y desbloquear = pulso de `LOCK_PULSE_SECONDS`. Hay que comprobarlo con el hardware real.
@@ -149,7 +159,9 @@ Los valores del perfil demo son orientativos; se ajustan en el archivo. Un endpo
 | POST | /api/v1/nodes/{node}/heartbeat | `{ "ip": "192.168.x.x", "actuators": { "humidifier": "off", ... }, "uptime": 123 }`. El edge guarda la IP para enviarle órdenes |
 | POST | /api/v1/simulate/readings | Inyecta lecturas falsas (solo si `ENABLE_SIMULATION=true`) |
 | POST | /api/v1/demo/security/validation | `{ "decision": "confirm" \| "reject" }`: simula la respuesta del usuario en la app |
+| POST | /api/v1/simulate/security/person | `{ "known": false }`: inyecta una persona detectada si la cámara falla en la demo (solo si `ENABLE_SIMULATION=true`) |
 | POST | /api/v1/demo/commands | `{ "deviceKey": "valve", "action": "open" }`: orden manual para la demo |
+| POST | /api/v1/demo/reset | Devuelve todos los subsistemas a su estado inicial y apaga sirena, buzzer y ventilador (no desbloquea la cerradura), para repetir la demo |
 | GET | /api/v1/status | Estado de los subsistemas, actuadores, cola pendiente y conexión MQTT |
 
 ### Órdenes del edge a la ESP32
@@ -175,7 +187,9 @@ Respuesta:
 | `sampling` | `set` con `intervalSeconds` |
 
 - Timeout de 2 s, con hasta 3 reintentos.
-- Si no hay respuesta, la orden queda en FAILED y se registra. **La acción local se considera ejecutada para la regla**, y se reintenta en el siguiente heartbeat.
+- Si no hay respuesta, la orden queda en FAILED y se registra. **La acción local se considera ejecutada para la regla.**
+- **Reconciliación por estado deseado:** el edge guarda el estado deseado de cada actuador. En cada heartbeat lo compara con `actuators` y envía solo la diferencia; las órdenes anteriores pasan a `SUPERSEDED`. No se reenvía la cola.
+- **Excepción:** un `unlock` fallido **nunca** se reintenta solo (ver `docs/adr/0003`). Un `lock` fallido sí.
 
 ## 9. Contrato MQTT con IoT Monitoring (Go)
 
@@ -233,7 +247,7 @@ El edge se suscribe desde ya. Mientras la nube no los publique, se usan los endp
 | `commands` | `command_id`, `node`, `actuator`, `action`, `params_json`, `status`, `simulated`, `created_at`, `acked_at` |
 | `security_events` | `event_id`, `type`, `evidence_path`, `validation`, `opened_at`, `closed_at` |
 
-Retención: purgar lo sincronizado con más de `RETENTION_DAYS` días (por defecto 7).
+Retención: al arrancar, purgar de `outbox` (solo lo sincronizado), `readings` y `commands` lo que tenga más de `RETENTION_DAYS` días (por defecto 7). Lo no sincronizado nunca se purga. `security_events` y `data/evidence/` no se purgan.
 
 ## 11. Configuración (`.env`)
 
@@ -274,6 +288,8 @@ RETENTION_DAYS=7
 - Los modelos de visión cargan una sola vez y corren en su propio hilo. Si la cámara no está disponible, el subsistema de seguridad sigue vivo y se reporta como degradado en `/status`.
 - Nada de secretos ni datos de `data/` en git.
 - Mantener los nombres de componentes del diagrama 5.6.2. Registrar las desviaciones en `docs/desviaciones.md`.
+- **Es una demo para un curso.** Preferir lo simple, repetible y fácil de calibrar sobre lo robusto para producción. Cada transición de estado y cada orden se loguea en consola con un mensaje legible, para mostrarlo en vivo.
+- Las dudas que dependen de otros equipos están en `docs/pendientes.md`. No inventar la respuesta: implementar tras una interfaz o configuración y dejar la duda anotada.
 
 ## 13. Desviaciones respecto del informe (documentar en él)
 
@@ -286,7 +302,11 @@ RETENTION_DAYS=7
 - Se agrega la orden de muestreo variable a la ESP32.
 - Los eventos se publican como "lecturas evento".
 
+Detalle y justificación en `docs/desviaciones.md` y `docs/adr/`.
+
 ## 14. Coordinación pendiente (fuera de este repo)
+
+Seguimiento en `docs/pendientes.md`.
 
 - **Con quien programa las ESP32:**
   - endpoints de §8 (envío de lecturas, sonido y heartbeat);
