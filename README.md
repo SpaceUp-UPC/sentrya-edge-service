@@ -229,6 +229,33 @@ Todos los subsistemas vuelven al estado inicial y se apagan sirena, buzzer, vent
 
 Si un sensor falla en vivo, `POST /api/v1/simulate/readings` acepta el mismo cuerpo que `/readings`, o varias lecturas con `{"readings": [...]}`.
 
+## Ver los datos guardados
+
+Todo queda en el archivo `edge/data/edge.db`. Lo puedes abrir con DB Browser for SQLite, con `sqlite3`, o con Python sin instalar nada:
+
+```bash
+python -c "import sqlite3; c=sqlite3.connect('edge/data/edge.db'); print(c.execute('SELECT metric_type, value, local_state FROM readings ORDER BY measured_at DESC LIMIT 5').fetchall())"
+```
+
+| Tabla | Qué guarda |
+|---|---|
+| `readings` | Cada lectura con su estado local |
+| `outbox` | Todo lo publicable por MQTT; `synced = 1` cuando el broker confirmó |
+| `commands` | Cada orden a las ESP32 y su resultado (`APPLIED`, `FAILED`, `PENDING`, `SUPERSEDED`) |
+| `nodes` | IP, último heartbeat y actuadores de cada nodo |
+| `subsystem_state` | Estado actual de temperatura, humedad y seguridad (se recupera tras un reinicio) |
+| `security_events` | Intrusiones, su validación y la ruta de la foto de evidencia |
+
+Las fotos de evidencia se guardan aparte, en `edge/data/evidence/`. Para empezar de cero, detén el edge y borra `edge/data/edge.db`; se vuelve a crear al arrancar.
+
+## Detener
+
+```bash
+# Ctrl+C en la terminal del edge y del simulador
+docker compose stop      # detiene el broker (el contenedor queda creado)
+docker compose down      # detiene y elimina el contenedor del broker
+```
+
 ## Ejecutar en la maqueta
 
 1. **Broker:** en `.env`, pon `MQTT_BROKER_URL` apuntando al broker que use IoT Monitoring, o usa `docker compose up -d` en la laptop.
