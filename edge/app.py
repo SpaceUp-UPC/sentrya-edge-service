@@ -39,7 +39,7 @@ class Edge:
         thresholds = thresholds_config.apply_profile(db, settings.profiles_dir, self.profile, clock)
         self.devices = load_devices(settings.devices_path)
         self.rules = RulesEngine(modules, clock, thresholds)
-        self.controller = LocalSafetyController(db, esp32, clock)
+        self.controller = LocalSafetyController(db, esp32, clock, settings)
         self.iot_client = IoTCommunicationClient(db, publisher)
         self.sensor_manager = SensorManager(db, clock, self.devices, self.rules,
                                             self.controller, settings.space_id)
@@ -49,8 +49,9 @@ class Edge:
     def tick(self) -> None:
         """Entrada periodica: avanza las reglas dependientes del tiempo y envia el outbox."""
         with self.db.session() as session:
-            for evaluation in self.rules.tick(session):
-                self.controller.execute(evaluation.actions)
+            evaluations = self.rules.tick(session)
+        for evaluation in evaluations:  # el controlador hace I/O: fuera de la transaccion
+            self.controller.execute(evaluation.actions)
         self.iot_client.flush()
 
     def start_background(self, interval: float = 1.0) -> None:
