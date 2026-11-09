@@ -216,3 +216,33 @@ def test_camera_recovers_from_degraded(real):
     h.camera.step()
     security = status(h)["subsystems"]["security"]
     assert (security["degraded"], security["camera"]) == (False, "OK")
+
+
+class BlockingPeopleDetector:
+    """Inferencia lenta: detect() se queda esperando hasta `release`."""
+
+    def __init__(self):
+        import threading
+        self.entered, self.release = threading.Event(), threading.Event()
+
+    def detect(self, frame):
+        self.entered.set()
+        self.release.wait(5)
+        return []
+
+
+def test_inference_runs_outside_the_edge_lock(make_harness):
+    import threading
+    people = BlockingPeopleDetector()
+    h = make_harness(_vision=CameraVision(FakeFrameSource(), people, FakeFaceRecognizer(),
+                                          encode_png=encode))
+    edge = h.app.extensions["edge"]
+    worker = threading.Thread(target=edge.camera_thread.step)
+    worker.start()
+    try:
+        assert people.entered.wait(2)
+        assert edge.lock.acquire(timeout=1)     # una lectura no espera a la inferencia
+        edge.lock.release()
+    finally:
+        people.release.set()
+        worker.join(5)

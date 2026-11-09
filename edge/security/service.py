@@ -52,20 +52,23 @@ class SecurityService:
             return suspicious
 
     def process_frame(self) -> str | None:
-        """Un cuadro de la camara (lo invoca el hilo de vision o la simulacion)."""
+        """Un cuadro de la camara (lo invoca el hilo de vision o la simulacion).
+
+        La inferencia (DNN) corre fuera del lock del edge; solo la entrega a las reglas lo toma.
+        """
+        observations = self.detector.detect()
         with self._lock:
-            outcome = self.person.process_frame()
+            outcome = self.person.observe(observations)
             if outcome == "appeared":
                 self._evaluate()
             return outcome
 
     def simulate_person(self, known: bool) -> str:
         """Inyecta una persona en el detector mock: aparece en un cuadro y se va en el siguiente."""
-        with self._lock:
-            self.detector.inject(known)
-            outcome = self.process_frame()
-            self.process_frame()
-            return outcome or "none"
+        self.detector.inject(known)
+        outcome = self.process_frame()
+        self.process_frame()
+        return outcome or "none"
 
     def validate(self, decision: str, event_id: str | None = None) -> dict | None:
         """Respuesta del usuario (demo o MQTT). None si no hay una ventana abierta que responda."""
