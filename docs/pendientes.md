@@ -28,6 +28,7 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 
 - [ ] Umbrales de humedad del perfil `demo` según la humedad de la sala.
 - [ ] Qué relés, MOSFET y fuentes estarán disponibles el día de la demo.
+- [ ] Visión real (ticket #12): calibrar `person_confidence` y `face_match_confidence` con la luz de la sala y la ESP32-CAM (el puntaje de rostro escala el coseno de SFace para que 0.80 sea el corte 0.363 de OpenCV; ver `docs/vision.md`). Seguir la verificación manual de `docs/vision.md`.
 
 ## Seguridad (ticket #8)
 
