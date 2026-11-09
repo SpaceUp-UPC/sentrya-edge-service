@@ -16,12 +16,17 @@ class NormalizedReading:
     value: float
     unit: str
     measured_at: str
+    error: bool = False
 
 
 def normalize_reading(body, devices, clock) -> NormalizedReading:
     if not isinstance(body, dict):
         raise ValidationError("El cuerpo debe ser un objeto JSON")
-    for field in ("node", "deviceKey", "metricType", "value", "unit"):
+    # Una lectura con "error" (p. ej. DHT22 fallido) no lleva valor ni unidad.
+    errored = bool(body.get("error"))
+    required = ("node", "deviceKey", "metricType") if errored else \
+        ("node", "deviceKey", "metricType", "value", "unit")
+    for field in required:
         if body.get(field) is None:
             raise ValidationError(f"Falta el campo obligatorio '{field}'")
 
@@ -31,6 +36,10 @@ def normalize_reading(body, devices, clock) -> NormalizedReading:
     if body["metricType"] != device.metric_type:
         raise ValidationError(
             f"metricType '{body['metricType']}' no coincide con '{device.metric_type}' del deviceKey")
+
+    if errored:
+        return NormalizedReading(device, body["metricType"], None, device.unit,
+                                 iso_utc(clock.now_utc()), error=True)
 
     value = body["value"]
     if isinstance(value, bool) or not isinstance(value, (int, float)):

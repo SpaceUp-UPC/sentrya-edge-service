@@ -18,7 +18,9 @@ def enqueue_events(session, events, devices, clock, space_id) -> None:
             continue
         now = iso_utc(clock.now_utc())
         event_id = str(uuid.uuid4())
-        payload = {"deviceId": device.device_id, "metricType": event.metric_type, "value": 1,
-                   "unit": "event", "readingId": event_id, "measuredAt": now, **event.data}
+        data = dict(event.data)
+        value, unit = data.pop("value", 1), data.pop("unit", "event")  # humedad: value/unit propios
+        payload = {"deviceId": device.device_id, "metricType": event.metric_type, "value": value,
+                   "unit": unit, "readingId": event_id, "measuredAt": now, **data}
         outbox.enqueue(session, event_id, f"sentrya/{space_id}/{device.device_id}/readings",
                        payload, now)

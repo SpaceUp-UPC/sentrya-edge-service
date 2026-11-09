@@ -50,6 +50,17 @@ def post_demo_command():
     params = body.get("params", {})
     if not isinstance(params, dict):
         raise ValidationError("params debe ser un objeto")
+    if body["action"] == "mode":   # AUTO/MANUAL: lo resuelve el modulo de reglas, no el actuador
+        mode = params.get("mode")
+        edge = _edge()
+        try:
+            with edge.db.session() as session:
+                known = edge.rules.set_mode(session, body["deviceKey"], mode)
+        except ValueError as error:
+            raise ValidationError(str(error)) from None
+        if not known:
+            raise ValidationError(f"{body['deviceKey']} no admite el modo")
+        return jsonify({"deviceKey": body["deviceKey"], "mode": mode})
     result = _edge().controller.send(body["deviceKey"], body["action"], params)
     return jsonify({"commandId": result.command_id, "status": result.status,
                     "simulated": result.simulated})

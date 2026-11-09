@@ -30,6 +30,10 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 - [ ] Qué relés, MOSFET y fuentes estarán disponibles el día de la demo.
 - [ ] Visión real (ticket #12): calibrar `person_confidence` y `face_match_confidence` con la luz de la sala y la ESP32-CAM (el puntaje de rostro escala el coseno de SFace para que 0.80 sea el corte 0.363 de OpenCV; ver `docs/vision.md`). Seguir la verificación manual de `docs/vision.md`.
 
+## Humedad (#7)
+
+- [ ] Equipo ESP32: error del DHT22 se reporta como `POST /api/v1/readings` con `{ "node", "deviceKey": "humidity", "metricType": "humidity", "error": "dht22" }` (sin `value` ni `unit`). Propuesta del edge; confirmar.
+- [ ] Equipo ESP32: confirmar `node-2` / `deviceKey: humidity` y que el humidificador responde a `humidifier` on/off.
 ## Seguridad (ticket #8)
 
 - [ ] Equipo ESP32: confirmar que el SA92 llega como un POST por disparo a `/api/v1/security/sound` (el edge usa la hora de llegada, no `triggeredAt`).
