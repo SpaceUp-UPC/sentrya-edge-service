@@ -1,0 +1,15 @@
+# Entorno
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secretos
+.env
+
+# Datos locales del edge (edge.db, evidence/, known_faces/)
+data/
+*.db
+
+# Claude Code (ajustes locales)
+.claude/settings.local.json
