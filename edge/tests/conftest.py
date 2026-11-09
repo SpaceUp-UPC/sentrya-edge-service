@@ -36,6 +36,17 @@ class Harness:
             self.clock.advance(seconds)
         self.app.extensions["edge"].tick()
 
+    def heartbeat(self, node="node-3", ip=None, actuators=None, uptime=100):
+        ip = ip or {"node-1": "10.0.0.1", "node-2": "10.0.0.2", "node-3": "10.0.0.3"}[node]
+        return self.client.post(f"/api/v1/nodes/{node}/heartbeat",
+                                json={"ip": ip, "actuators": actuators or {}, "uptime": uptime})
+
+    def command(self, device_key, action, **params):
+        body = {"deviceKey": device_key, "action": action}
+        if params:
+            body["params"] = params
+        return self.client.post("/api/v1/demo/commands", json=body)
+
     def post_reading(self, **overrides):
         body = {"node": "node-3", "deviceKey": "temperature", "metricType": "temperature",
                 "value": 26.4, "unit": "C", "measuredAt": "2026-01-01T11:59:59Z"}

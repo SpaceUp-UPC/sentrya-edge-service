@@ -28,8 +28,6 @@ class SensorManager:
         with self.db.session() as session:
             evaluations = self.rules.handle_reading(
                 session, device.key, reading.metric_type, reading.value)
-            for evaluation in evaluations:
-                self.controller.execute(evaluation.actions)  # primero se acciona
             local_state = evaluations[0].state["state"] if evaluations else None
             session.add(ReadingRow(
                 id=reading_id, device_key=device.key, metric_type=reading.metric_type,
@@ -41,6 +39,9 @@ class SensorManager:
             outbox.enqueue(session, reading_id,
                            f"sentrya/{self.space_id}/{device.device_id}/readings",
                            payload, iso_utc(self.clock.now_utc()))
+        # El controlador hace I/O de red: se acciona fuera de la transaccion (no bloquea la base).
+        for evaluation in evaluations:
+            self.controller.execute(evaluation.actions)
         log.info("Lectura %s=%s %s (%s) -> %s", device.key, reading.value, reading.unit,
                  reading.measured_at, local_state)
         return {"readingId": reading_id, "localState": local_state}

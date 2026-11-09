@@ -12,6 +12,8 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 - [ ] Modelo del sensor de temperatura y su intervalo mínimo.
 - [ ] ¿Las ESP32 tienen hora (NTP)? Si no, el edge pone la marca de tiempo.
 - [ ] Intervalo de heartbeat (la reconciliación de actuadores depende de él).
+- [ ] Cerradura: el edge manda `unlock` con `params.pulseSeconds` solo si `LOCK_ENERGIZE_TO_UNLOCK=true`; confirmar quién aplica la polaridad en la ESP32.
+- [ ] Heartbeat: el edge acepta `node-1`, `node-2`, `node-3` (más los de `devices.yaml`); confirmar los nombres reales.
 
 ## Equipo IoT Monitoring
 

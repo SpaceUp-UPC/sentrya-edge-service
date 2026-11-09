@@ -13,6 +13,17 @@ class NodeRow(Base):
     ip: Mapped[str | None] = mapped_column(String, nullable=True)
     last_seen_at: Mapped[str | None] = mapped_column(String, nullable=True)
     actuators_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    uptime: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class DesiredStateRow(Base):
+    """Ultimo estado deseado por actuador (lo reconcilia el heartbeat, ticket #6)."""
+    __tablename__ = "desired_state"
+    actuator: Mapped[str] = mapped_column(String, primary_key=True)
+    action: Mapped[str] = mapped_column(String)
+    params_json: Mapped[str] = mapped_column(Text, default="{}")
+    command_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[str] = mapped_column(String)
 
 
 class ReadingRow(Base):
