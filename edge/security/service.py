@@ -79,7 +79,7 @@ class SecurityService:
                     return None
                 evaluation = self.rules.handle_input(
                     session, SECURITY, "validation", {"decision": decision, "event_id": open_id})
-            self.controller.execute(evaluation.actions)           # primero se acciona
+            self.controller.actuate(evaluation)  # primero se acciona
             with self.db.session() as session:
                 if decision == "reject":
                     self._close(session, open_id, "rejected")
@@ -115,7 +115,7 @@ class SecurityService:
         with self._lock:
             with self.db.session() as session:
                 evaluation = self.rules.handle_input(session, SECURITY, "restart", {})
-            self.controller.execute(evaluation.actions)           # primero se acciona
+            self.controller.actuate(evaluation)  # primero se acciona
             with self.db.session() as session:
                 rows = session.query(SecurityEventRow).filter(
                     SecurityEventRow.closed_at.is_(None)).all()
@@ -143,7 +143,7 @@ class SecurityService:
                  "event_id": str(uuid.uuid4())}
         with self.db.session() as session:
             evaluation = self.rules.handle_input(session, "security", "security", extra)
-        self.controller.execute(evaluation.actions)           # 1. primero se acciona
+        self.controller.actuate(evaluation)  # 1. primero se acciona
         for event in evaluation.events:
             if event.metric_type == "intrusion":
                 self._record_intrusion(event.data["eventId"], evaluation.state["state"])

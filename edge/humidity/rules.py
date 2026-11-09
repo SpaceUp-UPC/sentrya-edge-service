@@ -41,6 +41,21 @@ class HumidityRules:
                 "low_count": 0, "high_count": 0, "exit_high_count": 0,
                 "last_value": None, "last_reading_at": None, "last_telemetry_at": None}
 
+    # ---- logs ----
+
+    def describe(self, state) -> str:
+        return f"{state['state']} (sensor caido)" if state.get("sensor_down") else state["state"]
+
+    def reason(self, input, old_state, new_state):
+        if new_state.get("sensor_down") and not old_state.get("sensor_down"):
+            if input.kind == "tick":
+                interval = input.thresholds[NAME]["read_interval_seconds"]
+                return f"sin lecturas del DHT22 durante mas de 3 x {interval} s"
+            return "el DHT22 reporto error"
+        if old_state.get("sensor_down") and not new_state.get("sensor_down"):
+            return f"el sensor volvio: lectura {input.device_key}={input.value}"
+        return None
+
     def reset_actions(self, thresholds) -> list:
         """Demo: humidificador apagado (el modo AUTO/MANUAL se conserva)."""
         return [Action(ACTUATOR, "off")]

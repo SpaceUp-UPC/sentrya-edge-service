@@ -71,7 +71,8 @@ class CloudInbox:
         if not isinstance(body, dict) or not isinstance(body.get("action"), str):
             raise ValidationError("commands requiere un objeto con action")
         actuator = self._resolve_actuator(topic.split("/")[2])
-        result = run_command(self.edge, actuator, body["action"], body.get("params") or {})
+        result = run_command(self.edge, actuator, body["action"], body.get("params") or {},
+                             origin="nube")
         log.info("Orden de la nube %s -> %s %s: %s", body.get("commandId"), actuator,
                  body["action"], result)
 

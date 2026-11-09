@@ -42,7 +42,7 @@ class SensorManager:
         # Las ordenes se registran fuera de la transaccion y ANTES de persistir la lectura y
         # encolarla para MQTT ("primero se acciona"); el despachador las envia sin bloquear.
         for evaluation in evaluations:
-            self.controller.execute(evaluation.actions)
+            self.controller.actuate(evaluation)
         local_state = evaluations[0].state["state"] if evaluations else None
         with self.db.session() as session:
             # Lectura con error (sin valor) no se guarda; si el modulo publica por su cuenta

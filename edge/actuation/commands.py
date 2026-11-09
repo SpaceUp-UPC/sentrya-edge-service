@@ -2,7 +2,7 @@
 from edge.sensors.normalizers import ValidationError
 
 
-def run_command(edge, device_key, action, params) -> dict:
+def run_command(edge, device_key, action, params, origin="demo") -> dict:
     """Ejecuta una orden. Lanza ValidationError si es invalida. Devuelve el cuerpo de respuesta."""
     if not isinstance(params, dict):
         raise ValidationError("params debe ser un objeto")
@@ -16,6 +16,6 @@ def run_command(edge, device_key, action, params) -> dict:
         if not known:
             raise ValidationError(f"{device_key} no admite el modo")
         return {"deviceKey": device_key, "mode": mode}
-    result = edge.controller.send(device_key, action, params)
+    result = edge.controller.send(device_key, action, params, origin)
     return {"commandId": result.command_id, "status": result.status,
             "simulated": result.simulated}

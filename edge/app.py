@@ -76,7 +76,7 @@ class Edge:
             with self.db.session() as session:
                 evaluations = self.rules.tick(session)
             for evaluation in evaluations:  # el controlador hace I/O: fuera de la transaccion
-                self.controller.execute(evaluation.actions)   # primero se acciona
+                self.controller.actuate(evaluation)  # primero se acciona
             if any(e.events for e in evaluations):
                 with self.db.session() as session:
                     for evaluation in evaluations:
@@ -95,8 +95,8 @@ class Edge:
                 orders = self.rules.reset(session)
             self.security.reset()
             results = []
-            for _subsystem, actions in orders:
-                results += self.controller.execute(actions)
+            for subsystem, actions in orders:
+                results += self.controller.execute(actions, subsystem, "reinicio de demo")
             return results
 
     def start_background(self, interval: float = 1.0) -> None:

@@ -45,6 +45,8 @@ class _Order:
     actuator: str
     action: str
     params: dict
+    origin: str     # subsistema o via (demo, nube, reconciliacion): para el log
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -79,7 +81,11 @@ class LocalSafetyController:
 
     # ---- entrada del Rules Engine ----
 
-    def execute(self, actions: list) -> list[CommandResult]:
+    def actuate(self, evaluation) -> list[CommandResult]:
+        """Ordenes de una evaluacion del Rules Engine, con su subsistema y motivo."""
+        return self.execute(evaluation.actions, evaluation.subsystem, evaluation.reason)
+
+    def execute(self, actions: list, origin: str = "reglas", reason: str = "") -> list[CommandResult]:
         """Registra las ordenes de una regla (PENDING) y las entrega al despachador.
 
         Se registran en el hilo que llama, antes de que este persista o publique nada
@@ -92,18 +98,21 @@ class LocalSafetyController:
             if item.action == "unlock":
                 log.warning("Regla local intento desbloquear %s: descartado (ADR 0003)", item.actuator)
                 continue
-            results.append(self._dispatch(self._register(item.actuator, item.action,
-                                                         dict(item.params))))
+            results.append(self._dispatch(self._register(
+                item.actuator, item.action, dict(item.params), origin, reason)))
         return results
 
     # ---- envio ----
 
-    def send(self, actuator: str, action: str, params: dict | None = None) -> CommandResult:
+    def send(self, actuator: str, action: str, params: dict | None = None,
+             origin: str = "demo") -> CommandResult:
         """Orden explicita (demo, nube): se envia en el hilo que llama y devuelve el resultado
         final. Puede desbloquear; las ordenes de reglas pasan por `execute`."""
-        return self._complete(self._register(actuator, action, dict(params or {})))
+        return self._complete(self._register(actuator, action, dict(params or {}), origin,
+                                             "orden explicita"))
 
-    def _register(self, actuator: str, action: str, params: dict) -> _Order:
+    def _register(self, actuator: str, action: str, params: dict, origin: str,
+                  reason: str) -> _Order:
         catalog.validate(actuator, action, params)
         params = self._lock_params(actuator, action, params)
         node = catalog.ACTUATOR_NODES[actuator]
@@ -117,7 +126,9 @@ class LocalSafetyController:
             session.add(CommandRow(command_id=command_id, node=node, actuator=actuator,
                                    action=action, params_json=json.dumps(params),
                                    status="PENDING", simulated=False, created_at=now))
-        return _Order(command_id, node, actuator, action, params)
+        log.info("Orden %s [%s] (motivo: %s)", _describe(node, actuator, action, params),
+                 origin, reason or "sin motivo")
+        return _Order(command_id, node, actuator, action, params, origin, reason)
 
     def _dispatch(self, order: "_Order") -> CommandResult:
         result = self.dispatcher.submit(lambda: self._complete(order))
@@ -134,8 +145,8 @@ class LocalSafetyController:
             order.command_id, order.node, order.actuator, order.action, order.params)
         with self._node_lock(node):
             if self._last_status(command_id) == "SUPERSEDED":
-                log.info("Orden %s %s %s %s superada antes de enviarse: no se envia", node,
-                         actuator, action, params or "")
+                log.info("Orden %s superada antes de enviarse: no se envia",
+                         _describe(node, actuator, action, params))
                 return CommandResult(command_id, node, actuator, action, "SUPERSEDED")
             status, simulated = self._deliver(self.node_ip(node), command_id, actuator, action,
                                               params)
@@ -156,7 +167,7 @@ class LocalSafetyController:
                 desired.params_json = json.dumps(params)
                 desired.command_id = command_id
                 desired.updated_at = acked
-        log.info("Orden %s %s %s %s -> %s%s", node, actuator, action, params or "", status,
+        log.info("Orden %s -> %s%s", _describe(node, actuator, action, params), status,
                  " (simulada)" if simulated else "")
         return CommandResult(command_id, node, actuator, action, status, simulated)
 
@@ -207,9 +218,9 @@ class LocalSafetyController:
                         continue
                 elif self._last_status(desired.command_id) != "FAILED":
                     continue
-                log.info("Reconciliando %s: deseado %s %s, reportado %s", actuator,
-                         desired.action, desired.params or "", reported.get(actuator, "sin dato"))
-                orders.append(self._register(actuator, desired.action, dict(desired.params)))
+                orders.append(self._register(
+                    actuator, desired.action, dict(desired.params), "reconciliacion",
+                    f"heartbeat de {node} reporta {reported.get(actuator, 'sin dato')}"))
         return [self._dispatch(order) for order in orders]
 
     def _pending_actuators(self) -> set:
@@ -234,6 +245,10 @@ class LocalSafetyController:
         with self.db.session() as session:
             row = session.get(NodeRow, node)
             return row.ip if row else None
+
+
+def _describe(node, actuator, action, params) -> str:
+    return " ".join([node, actuator, action] + ([str(params)] if params else []))
 
 
 _EXPECTED = {

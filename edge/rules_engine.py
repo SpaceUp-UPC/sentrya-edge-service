@@ -3,6 +3,12 @@
 Cada modulo expone la misma interfaz pura:
     evaluate(input, state, clock) -> (new_state, actions[], events[])
 Agregar un subsistema es registrar un modulo; el nucleo no cambia.
+
+Ganchos opcionales de un modulo (para los logs de la demo):
+    describe(state) -> str                          estado tal como se loguea (por defecto
+                                                    state["state"])
+    reason(input, old_state, new_state) -> str|None motivo legible de la transicion y de las
+                                                    ordenes (por defecto, la lectura)
 """
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
@@ -56,6 +62,7 @@ class Evaluation:
     actions: list
     events: list
     publish_reading: bool = True  # False: el modulo publica por su cuenta (p. ej. humedad)
+    reason: str = ""              # motivo legible: se loguea con la transicion y las ordenes
 
 
 def check_thresholds(modules, thresholds: dict) -> None:
@@ -84,18 +91,28 @@ class RulesEngine:
         state, _ = state_store.load_state(session, module.name)
         state = state if state is not None else module.initial_state()
         new_state, actions, events = module.evaluate(rule_input, state, self.clock)
-        if new_state["state"] != state["state"]:
-            log.info("[%s] %s -> %s (motivo: %s)", module.name, state["state"],
-                     new_state["state"], self._reason(rule_input))
+        reason = self._reason(module, rule_input, state, new_state)
+        before, after = self._describe(module, state), self._describe(module, new_state)
+        if before != after:
+            log.info("[%s] %s -> %s (motivo: %s)", module.name, before, after, reason)
         state_store.save_state(session, module.name, new_state, iso_utc(self.clock.now_utc()))
         return Evaluation(module.name, new_state, list(actions), list(events),
-                          getattr(module, "publish_readings", True))
+                          getattr(module, "publish_readings", True), reason)
 
     @staticmethod
-    def _reason(rule_input) -> str:
+    def _describe(module, state) -> str:
+        describe = getattr(module, "describe", None)
+        return describe(state) if describe else state["state"]
+
+    @staticmethod
+    def _reason(module, rule_input, old_state, new_state) -> str:
+        custom = getattr(module, "reason", None)
+        text = custom(rule_input, old_state, new_state) if custom else None
+        if text:
+            return text
         if rule_input.kind == "reading":
             return f"lectura {rule_input.device_key}={rule_input.value}"
-        return f"entrada {rule_input.kind}"
+        return {"tick": "paso del tiempo"}.get(rule_input.kind, rule_input.kind)
 
     def reset(self, session) -> list[tuple[str, list]]:
         """Demo: todos los modulos vuelven a su estado inicial, salvo el modo AUTO/MANUAL, que
