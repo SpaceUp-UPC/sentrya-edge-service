@@ -15,6 +15,7 @@ from edge.sensors.sensor_manager import SensorManager
 from edge.shared.clock import SystemClock
 from edge.shared.db import Database
 from edge.shared.logging import configure_logging, get_logger
+from edge.shared.retention import purge
 from edge.temperature import rules as temperature_rules
 
 log = get_logger("app")
@@ -36,6 +37,7 @@ class Edge:
         self.publisher = publisher
         self.vision = vision
         self.profile = settings.threshold_profile
+        purge(db, clock, settings.retention_days)
         thresholds = thresholds_config.apply_profile(db, settings.profiles_dir, self.profile, clock)
         self.devices = load_devices(settings.devices_path)
         self.rules = RulesEngine(modules, clock, thresholds)
