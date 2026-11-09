@@ -13,3 +13,6 @@ data/
 
 # Claude Code (ajustes locales)
 .claude/settings.local.json
+
+# Worktrees de subagentes
+.claude/worktrees/
