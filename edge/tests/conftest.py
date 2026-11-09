@@ -16,6 +16,11 @@ DEVICES_YAML = """
   deviceId: "dev-temp-1"
   metricType: temperature
   unit: C
+- key: escalation
+  node: edge
+  deviceId: "dev-escalation-1"
+  metricType: escalation
+  unit: event
 """
 
 
