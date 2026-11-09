@@ -12,6 +12,9 @@ from edge.config.settings import Settings
 from edge.rules_engine import RulesEngine
 from edge.sensors import api
 from edge.sensors.sensor_manager import SensorManager
+from edge.security import rules as security_rules
+from edge.security.person_detection import MockPersonDetector
+from edge.security.service import SecurityService
 from edge.shared.clock import SystemClock
 from edge.shared.db import Database
 from edge.shared.logging import configure_logging, get_logger
@@ -23,7 +26,7 @@ log = get_logger("app")
 
 def default_modules() -> list:
     """Registro de modulos de reglas. Un subsistema nuevo se agrega aqui."""
-    return [temperature_rules.MODULE]
+    return [temperature_rules.MODULE, security_rules.MODULE]
 
 
 class Edge:
@@ -45,6 +48,8 @@ class Edge:
         self.iot_client = IoTCommunicationClient(db, publisher)
         self.sensor_manager = SensorManager(db, clock, self.devices, self.rules,
                                             self.controller, settings.space_id)
+        self.security = SecurityService(db, clock, self.rules, self.controller, self.iot_client,
+                                       self.devices, vision, settings)
         self._stop = threading.Event()
         self._thread = None
 
@@ -85,7 +90,7 @@ def create_app(settings, *, clock, esp32, publisher, vision, db=None, modules=No
 
 
 def build_default_app() -> Flask:
-    """App de produccion: reloj, ESP32, MQTT y vision reales (la vision mock llega en su ticket)."""
+    """App de produccion: reloj, ESP32, MQTT y vision reales (vision mock por defecto)."""
     from dotenv import load_dotenv
     from edge.actuation.esp32_client import RequestsEsp32Client
     from edge.communication.mqtt_publisher import PahoPublisher
@@ -97,7 +102,7 @@ def build_default_app() -> Flask:
                               settings.mqtt_password, settings.mqtt_tls)
     publisher.start()
     return create_app(settings, clock=SystemClock(), esp32=RequestsEsp32Client(),
-                      publisher=publisher, vision=None, start_background=True)
+                      publisher=publisher, vision=MockPersonDetector(), start_background=True)
 
 
 def main() -> None:

@@ -5,3 +5,8 @@
   deviceId: "REEMPLAZAR-ID-TEMPERATURA"
   metricType: temperature
   unit: C
+- key: intrusion
+  node: node-1
+  deviceId: "REEMPLAZAR-ID-INTRUSION"
+  metricType: intrusion
+  unit: event

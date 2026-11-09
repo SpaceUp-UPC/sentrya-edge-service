@@ -28,3 +28,8 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 
 - [ ] Umbrales de humedad del perfil `demo` según la humedad de la sala.
 - [ ] Qué relés, MOSFET y fuentes estarán disponibles el día de la demo.
+
+## Seguridad (ticket #8)
+
+- [ ] Equipo ESP32: confirmar que el SA92 llega como un POST por disparo a `/api/v1/security/sound` (el edge usa la hora de llegada, no `triggeredAt`).
+- [ ] Equipo IoT Monitoring: registrar el dispositivo `intrusion` (`REEMPLAZAR-ID-INTRUSION` en `devices.yaml`); `evidenceRef` es una ruta relativa local (`evidence/<eventId>.png`), la nube no puede descargarla todavia.
