@@ -1,4 +1,6 @@
 """API HTTP local para las ESP32 (blueprint de Flask)."""
+from datetime import datetime
+
 from flask import Blueprint, current_app, jsonify, request
 
 from edge.actuation import nodes
@@ -61,6 +63,32 @@ def post_demo_command():
     result = _edge().controller.send(body["deviceKey"], body["action"], params)
     return jsonify({"commandId": result.command_id, "status": result.status,
                     "simulated": result.simulated})
+
+
+@bp.post("/security/sound")
+def post_security_sound():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("node"), str) or not body["node"]:
+        raise ValidationError("node es obligatorio")
+    if body.get("triggeredAt") is not None:
+        try:
+            datetime.fromisoformat(str(body["triggeredAt"]).replace("Z", "+00:00"))
+        except ValueError:
+            raise ValidationError("triggeredAt debe ser ISO-8601") from None
+    return jsonify({"suspicious": _edge().security.on_sound_shot()}), 201
+
+
+@bp.post("/simulate/security/person")
+def post_simulate_person():
+    edge = _edge()
+    if not edge.settings.enable_simulation:
+        return jsonify({"error": "simulacion deshabilitada"}), 404
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("known"), bool):
+        raise ValidationError("known (booleano) es obligatorio")
+    if not hasattr(edge.vision, "inject"):
+        return jsonify({"error": "el detector activo no es el mock"}), 409
+    return jsonify({"known": body["known"], "event": edge.security.simulate_person(body["known"])})
 
 
 @bp.get("/status")

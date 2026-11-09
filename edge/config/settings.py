@@ -29,6 +29,7 @@ class Settings:
     lock_pulse_seconds: float = 3
     enable_simulation: bool = True
     retention_days: int = 7
+    evidence_dir: Path = PACKAGE_DIR / "data" / "evidence"
     profiles_dir: Path = PACKAGE_DIR / "config" / "profiles"
     devices_path: Path = PACKAGE_DIR / "config" / "devices.yaml"
     db_url: str = f"sqlite:///{(PACKAGE_DIR / 'data' / 'edge.db').as_posix()}"
@@ -58,6 +59,7 @@ class Settings:
             lock_pulse_seconds=float(get("LOCK_PULSE_SECONDS", d.lock_pulse_seconds)),
             enable_simulation=_bool(get("ENABLE_SIMULATION", "true")),
             retention_days=int(get("RETENTION_DAYS", d.retention_days)),
+            evidence_dir=Path(get("EVIDENCE_DIR", d.evidence_dir)),
         )
         values.update(overrides)
         return cls(**values)

@@ -33,5 +33,9 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 
 - [ ] Equipo ESP32: error del DHT22 se reporta como `POST /api/v1/readings` con `{ "node", "deviceKey": "humidity", "metricType": "humidity", "error": "dht22" }` (sin `value` ni `unit`). Propuesta del edge; confirmar.
 - [ ] Equipo ESP32: confirmar `node-2` / `deviceKey: humidity` y que el humidificador responde a `humidifier` on/off.
+## Seguridad (ticket #8)
+
+- [ ] Equipo ESP32: confirmar que el SA92 llega como un POST por disparo a `/api/v1/security/sound` (el edge usa la hora de llegada, no `triggeredAt`).
+- [ ] Equipo IoT Monitoring: registrar el dispositivo `intrusion` (`REEMPLAZAR-ID-INTRUSION` en `devices.yaml`); `evidenceRef` es una ruta relativa local (`evidence/<eventId>.png`), la nube no puede descargarla todavia.
 
 - **Formato de `actuators` en el heartbeat (ticket #6):** el edge compara el deseado con los valores `on`/`off` (siren, humidifier, buzzer), `locked`/`unlocked` (lock), `open`/`closed` (valve) y duty numerico u `on`/`off` (fan). Confirmar con quien programa las ESP32. Un `unlock` aplicado nunca se reconcilia (la cerradura se vuelve a cerrar sola tras el pulso).
