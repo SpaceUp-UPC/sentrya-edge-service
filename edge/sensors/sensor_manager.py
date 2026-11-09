@@ -25,7 +25,6 @@ class SensorManager:
     def ingest_reading(self, body) -> dict:
         """Orden: validar -> reglas -> accionar -> persistir -> outbox. Lanza ValidationError."""
         reading = normalize_reading(body, self.devices, self.clock)
-        device = reading.device
         reading_id = str(uuid.uuid4())
         with self.lock:
             local_state = self._apply(reading, reading_id)

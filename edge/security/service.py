@@ -138,11 +138,11 @@ class SecurityService:
     # ---- correlacion y reaccion ----
 
     def _evaluate(self) -> None:
-        extra = {"last_unknown_person_at": self.person.last_unknown_person_at,
-                 "last_suspicious_sound_at": self.sound.last_suspicious_sound_at,
-                 "event_id": str(uuid.uuid4())}
+        correlation = {"last_unknown_person_at": self.person.last_unknown_person_at,
+                       "last_suspicious_sound_at": self.sound.last_suspicious_sound_at,
+                       "event_id": str(uuid.uuid4())}
         with self.db.session() as session:
-            evaluation = self.rules.handle_input(session, "security", "security", extra)
+            evaluation = self.rules.handle_input(session, SECURITY, "security", correlation)
         self.controller.actuate(evaluation)  # 1. primero se acciona
         for event in evaluation.events:
             if event.metric_type == "intrusion":

@@ -24,6 +24,9 @@ from edge.shared.models import CommandRow, DesiredStateRow, NodeRow
 
 log = get_logger("lsc")
 
+# Estados de una orden en la tabla commands.
+PENDING, APPLIED, FAILED, SUPERSEDED = "PENDING", "APPLIED", "FAILED", "SUPERSEDED"
+
 MAX_RETRIES = 3  # reintentos tras el primer intento (timeout de 2 s lo aplica el adaptador)
 
 
@@ -76,8 +79,8 @@ class LocalSafetyController:
         """Al arrancar: una orden PENDING de un proceso anterior nunca se envio. Queda FAILED,
         asi la reconciliacion por heartbeat no la toma por una orden aun en camino."""
         with self.db.session() as session:
-            for row in session.query(CommandRow).filter(CommandRow.status == "PENDING"):
-                row.status = "FAILED"
+            for row in session.query(CommandRow).filter(CommandRow.status == PENDING):
+                row.status = FAILED
 
     # ---- entrada del Rules Engine ----
 
@@ -121,11 +124,11 @@ class LocalSafetyController:
         with self._lock, self.db.session() as session:
             # Las ordenes previas aun sin cumplir quedan superadas por esta (reconciliacion, #6).
             for old in session.query(CommandRow).filter(
-                    CommandRow.actuator == actuator, CommandRow.status.in_(("PENDING", "FAILED"))):
-                old.status = "SUPERSEDED"
+                    CommandRow.actuator == actuator, CommandRow.status.in_((PENDING, FAILED))):
+                old.status = SUPERSEDED
             session.add(CommandRow(command_id=command_id, node=node, actuator=actuator,
                                    action=action, params_json=json.dumps(params),
-                                   status="PENDING", simulated=False, created_at=now))
+                                   status=PENDING, simulated=False, created_at=now))
         log.info("Orden %s [%s] (motivo: %s)", _describe(node, actuator, action, params),
                  origin, reason or "sin motivo")
         return _Order(command_id, node, actuator, action, params, origin, reason)
@@ -133,7 +136,7 @@ class LocalSafetyController:
     def _dispatch(self, order: "_Order") -> CommandResult:
         result = self.dispatcher.submit(lambda: self._complete(order))
         return result if result is not None else CommandResult(
-            order.command_id, order.node, order.actuator, order.action, "PENDING")
+            order.command_id, order.node, order.actuator, order.action, PENDING)
 
     def _complete(self, order: "_Order") -> CommandResult:
         """Entrega la orden a su nodo (con reintentos) y registra el acuse y el deseado.
@@ -144,10 +147,10 @@ class LocalSafetyController:
         command_id, node, actuator, action, params = (
             order.command_id, order.node, order.actuator, order.action, order.params)
         with self._node_lock(node):
-            if self._last_status(command_id) == "SUPERSEDED":
+            if self._last_status(command_id) == SUPERSEDED:
                 log.info("Orden %s superada antes de enviarse: no se envia",
                          _describe(node, actuator, action, params))
-                return CommandResult(command_id, node, actuator, action, "SUPERSEDED")
+                return CommandResult(command_id, node, actuator, action, SUPERSEDED)
             status, simulated = self._deliver(self.node_ip(node), command_id, actuator, action,
                                               params)
 
@@ -155,10 +158,10 @@ class LocalSafetyController:
         with self._lock, self.db.session() as session:
             command = session.get(CommandRow, command_id)
             # Superada mientras se enviaba: la mas nueva fija el deseado (se envia despues).
-            newer = command.status == "SUPERSEDED"
+            newer = command.status == SUPERSEDED
             command.status, command.simulated, command.acked_at = status, simulated, acked
             # Un unlock fallido no queda como deseado: nunca se reintenta solo (ADR 0003).
-            if not newer and not (action == "unlock" and status == "FAILED"):
+            if not newer and not (action == "unlock" and status == FAILED):
                 desired = session.get(DesiredStateRow, actuator)
                 if desired is None:
                     desired = DesiredStateRow(actuator=actuator)
@@ -178,7 +181,7 @@ class LocalSafetyController:
     def _deliver(self, ip, command_id, actuator, action, params):
         if not ip:
             log.warning("Nodo de %s sin IP conocida: FAILED", actuator)
-            return "FAILED", False
+            return FAILED, False
         body = {"commandId": command_id, "actuator": actuator, "action": action, "params": params}
         for attempt in range(1 + MAX_RETRIES):
             try:
@@ -186,9 +189,9 @@ class LocalSafetyController:
             except Exception as error:  # timeout, conexion, HTTP, JSON invalido
                 log.warning("Intento %d/%d a %s fallo: %s", attempt + 1, 1 + MAX_RETRIES, ip, error)
                 continue
-            status = "APPLIED" if reply.get("status") == "APPLIED" else "FAILED"
+            status = APPLIED if reply.get("status") == APPLIED else FAILED
             return status, bool(reply.get("simulated", False))
-        return "FAILED", False
+        return FAILED, False
 
     def _lock_params(self, actuator, action, params):
         if actuator == "lock" and action == "unlock" and self.settings.lock_energize_to_unlock:
@@ -216,7 +219,7 @@ class LocalSafetyController:
                 if actuator in reported:
                     if _matches(actuator, desired, reported[actuator]):
                         continue
-                elif self._last_status(desired.command_id) != "FAILED":
+                elif self._last_status(desired.command_id) != FAILED:
                     continue
                 orders.append(self._register(
                     actuator, desired.action, dict(desired.params), "reconciliacion",
@@ -226,7 +229,7 @@ class LocalSafetyController:
     def _pending_actuators(self) -> set:
         with self.db.session() as session:
             return {r.actuator for r in session.query(CommandRow).filter(
-                CommandRow.status == "PENDING")}
+                CommandRow.status == PENDING)}
 
     def _last_status(self, command_id):
         with self.db.session() as session:

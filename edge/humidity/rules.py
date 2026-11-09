@@ -16,6 +16,7 @@ NAME = "humidity"
 DEVICE_KEY = "humidity"
 ACTUATOR = "humidifier"
 MODES = ("auto", "manual")
+NORMAL, LOW, HIGH = "NORMAL", "LOW", "HIGH"
 
 
 def _monotonic_now(clock, state) -> float:
@@ -37,7 +38,7 @@ class HumidityRules:
     mode_device_key = ACTUATOR   # /demo/commands {"deviceKey": "humidifier", "action": "mode"}
 
     def initial_state(self) -> dict:
-        return {"state": "NORMAL", "mode": "auto", "humidifier": "off", "sensor_down": False,
+        return {"state": NORMAL, "mode": "auto", "humidifier": "off", "sensor_down": False,
                 "low_count": 0, "high_count": 0, "exit_high_count": 0,
                 "last_value": None, "last_reading_at": None, "last_telemetry_at": None}
 
@@ -91,29 +92,29 @@ class HumidityRules:
         needed = cfg["consecutive_readings"]
 
         state["low_count"] = state["low_count"] + 1 if value < cfg["on_below"] else 0
-        if state["state"] != "HIGH":
+        if state["state"] != HIGH:
             state["high_count"] = state["high_count"] + 1 if value > cfg["high_above"] else 0
 
-        if state["state"] == "HIGH":
+        if state["state"] == HIGH:
             exit_below = cfg["high_above"] - cfg["high_hysteresis"]
             state["exit_high_count"] = state["exit_high_count"] + 1 if value < exit_below else 0
             if state["exit_high_count"] >= needed:
-                state["state"], state["exit_high_count"] = "NORMAL", 0
+                state["state"], state["exit_high_count"] = NORMAL, 0
                 state["low_count"] = 0
         else:
-            if state["state"] == "LOW" and value >= cfg["off_at"]:
-                state["state"] = "NORMAL"
+            if state["state"] == LOW and value >= cfg["off_at"]:
+                state["state"] = NORMAL
                 if state["humidifier"] == "on" and not manual:
                     self._humidifier(state, actions, "off")
             if state["high_count"] >= needed:
-                state["state"], state["high_count"] = "HIGH", 0
+                state["state"], state["high_count"] = HIGH, 0
                 state["exit_high_count"] = 0
                 self._humidifier(state, actions, "off", force=True)   # tambien en MANUAL
-            elif state["state"] == "NORMAL" and state["low_count"] >= needed:
-                state["state"] = "LOW"
+            elif state["state"] == NORMAL and state["low_count"] >= needed:
+                state["state"] = LOW
                 if not manual:
                     self._humidifier(state, actions, "on")
-            elif state["state"] == "LOW" and not manual and state["humidifier"] == "off":
+            elif state["state"] == LOW and not manual and state["humidifier"] == "off":
                 # Sigue en LOW pero apagado (el sensor cayo y se recupero): AUTO lo vuelve a
                 # encender con la lectura valida (historia 15).
                 self._humidifier(state, actions, "on")

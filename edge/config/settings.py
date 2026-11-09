@@ -46,32 +46,32 @@ class Settings:
             value = env.get(name)
             return default if value in (None, "") else value
 
-        d = cls()
+        defaults = cls()
         values = dict(
-            space_id=str(get("SPACE_ID", d.space_id)),
-            threshold_profile=get("THRESHOLD_PROFILE", d.threshold_profile),
-            flask_host=get("FLASK_HOST", d.flask_host),
-            flask_port=int(get("FLASK_PORT", d.flask_port)),
-            mqtt_broker_url=get("MQTT_BROKER_URL", d.mqtt_broker_url),
+            space_id=str(get("SPACE_ID", defaults.space_id)),
+            threshold_profile=get("THRESHOLD_PROFILE", defaults.threshold_profile),
+            flask_host=get("FLASK_HOST", defaults.flask_host),
+            flask_port=int(get("FLASK_PORT", defaults.flask_port)),
+            mqtt_broker_url=get("MQTT_BROKER_URL", defaults.mqtt_broker_url),
             mqtt_username=get("MQTT_USERNAME", ""),
             mqtt_password=get("MQTT_PASSWORD", ""),
             mqtt_tls=_bool(get("MQTT_TLS", "false")),
             camera_stream_url=get("CAMERA_STREAM_URL", ""),
-            person_detector=get("PERSON_DETECTOR", d.person_detector),
-            face_recognizer=get("FACE_RECOGNIZER", d.face_recognizer),
-            camera_fps=float(get("CAMERA_FPS", d.camera_fps)),
-            sound_triggers_required=int(get("SOUND_TRIGGERS_REQUIRED", d.sound_triggers_required)),
-            sound_window_seconds=float(get("SOUND_WINDOW_SECONDS", d.sound_window_seconds)),
+            person_detector=get("PERSON_DETECTOR", defaults.person_detector),
+            face_recognizer=get("FACE_RECOGNIZER", defaults.face_recognizer),
+            camera_fps=float(get("CAMERA_FPS", defaults.camera_fps)),
+            sound_triggers_required=int(get("SOUND_TRIGGERS_REQUIRED", defaults.sound_triggers_required)),
+            sound_window_seconds=float(get("SOUND_WINDOW_SECONDS", defaults.sound_window_seconds)),
             lock_energize_to_unlock=_bool(get("LOCK_ENERGIZE_TO_UNLOCK", "true")),
-            lock_pulse_seconds=float(get("LOCK_PULSE_SECONDS", d.lock_pulse_seconds)),
+            lock_pulse_seconds=float(get("LOCK_PULSE_SECONDS", defaults.lock_pulse_seconds)),
             enable_simulation=_bool(get("ENABLE_SIMULATION", "true")),
-            retention_days=int(get("RETENTION_DAYS", d.retention_days)),
-            evidence_dir=Path(get("EVIDENCE_DIR", d.evidence_dir)),
-            known_faces_dir=Path(get("KNOWN_FACES_DIR", d.known_faces_dir)),
-            person_model_path=Path(get("PERSON_MODEL_PATH", d.person_model_path)),
-            face_detector_model_path=Path(get("FACE_DETECTOR_MODEL_PATH", d.face_detector_model_path)),
+            retention_days=int(get("RETENTION_DAYS", defaults.retention_days)),
+            evidence_dir=Path(get("EVIDENCE_DIR", defaults.evidence_dir)),
+            known_faces_dir=Path(get("KNOWN_FACES_DIR", defaults.known_faces_dir)),
+            person_model_path=Path(get("PERSON_MODEL_PATH", defaults.person_model_path)),
+            face_detector_model_path=Path(get("FACE_DETECTOR_MODEL_PATH", defaults.face_detector_model_path)),
             face_recognizer_model_path=Path(get("FACE_RECOGNIZER_MODEL_PATH",
-                                                d.face_recognizer_model_path)),
+                                                defaults.face_recognizer_model_path)),
         )
         values.update(overrides)
         return cls(**values)

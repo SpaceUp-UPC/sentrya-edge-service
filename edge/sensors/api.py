@@ -42,8 +42,8 @@ def _unknown_node(error):
 @bp.post("/nodes/<node>/heartbeat")
 def post_heartbeat(node):
     edge = _edge()
-    extra = {d.node for d in edge.devices.values()}
-    nodes.record_heartbeat(edge.db, edge.clock, node, request.get_json(silent=True), extra)
+    device_nodes = {device.node for device in edge.devices.values()}
+    nodes.record_heartbeat(edge.db, edge.clock, node, request.get_json(silent=True), device_nodes)
     body = request.get_json(silent=True)
     edge.controller.reconcile(node, body.get("actuators") or {})
     return jsonify({"ok": True})
