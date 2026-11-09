@@ -28,3 +28,5 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 
 - [ ] Umbrales de humedad del perfil `demo` según la humedad de la sala.
 - [ ] Qué relés, MOSFET y fuentes estarán disponibles el día de la demo.
+
+- **Formato de `actuators` en el heartbeat (ticket #6):** el edge compara el deseado con los valores `on`/`off` (siren, humidifier, buzzer), `locked`/`unlocked` (lock), `open`/`closed` (valve) y duty numerico u `on`/`off` (fan). Confirmar con quien programa las ESP32. Un `unlock` aplicado nunca se reconcilia (la cerradura se vuelve a cerrar sola tras el pulso).
