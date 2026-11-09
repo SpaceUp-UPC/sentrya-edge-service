@@ -1,6 +1,6 @@
 """Sensor Manager: valida, normaliza, persiste y distribuye las lecturas de las ESP32."""
+import threading
 import uuid
-from datetime import datetime, timezone
 
 from edge.communication import outbox
 from edge.communication.events import enqueue_events
@@ -13,25 +13,34 @@ log = get_logger("sensors")
 
 
 class SensorManager:
-    def __init__(self, db, clock, devices, rules_engine, controller, space_id):
+    def __init__(self, db, clock, devices, rules_engine, controller, space_id, lock=None):
         self.db = db
         self.clock = clock
         self.devices = devices
         self.rules = rules_engine
         self.controller = controller
         self.space_id = space_id
+        self.lock = lock or threading.RLock()   # el lock del edge (subsystem_state)
 
     def ingest_reading(self, body) -> dict:
         """Orden: validar -> reglas -> accionar -> persistir -> outbox. Lanza ValidationError."""
         reading = normalize_reading(body, self.devices, self.clock)
         device = reading.device
         reading_id = str(uuid.uuid4())
+        with self.lock:
+            local_state = self._apply(reading, reading_id)
+        log.info("Lectura %s=%s %s (%s) -> %s", reading.device.key, reading.value, reading.unit,
+                 reading.measured_at, local_state)
+        return {"readingId": reading_id, "localState": local_state}
+
+    def _apply(self, reading, reading_id):
+        device = reading.device
         with self.db.session() as session:
             evaluations = self.rules.handle_reading(
                 session, device.key, reading.metric_type, reading.value,
                 {"error": True} if reading.error else None)
-        # El controlador hace I/O de red: se acciona fuera de la transaccion y ANTES de
-        # persistir la lectura y encolarla para MQTT ("primero se acciona").
+        # Las ordenes se registran fuera de la transaccion y ANTES de persistir la lectura y
+        # encolarla para MQTT ("primero se acciona"); el despachador las envia sin bloquear.
         for evaluation in evaluations:
             self.controller.execute(evaluation.actions)
         local_state = evaluations[0].state["state"] if evaluations else None
@@ -53,6 +62,4 @@ class SensorManager:
                                    payload, iso_utc(self.clock.now_utc()))
             for evaluation in evaluations:
                 enqueue_events(session, evaluation.events, self.devices, self.clock, self.space_id)
-        log.info("Lectura %s=%s %s (%s) -> %s", device.key, reading.value, reading.unit,
-                 reading.measured_at, local_state)
-        return {"readingId": reading_id, "localState": local_state}
+        return local_state

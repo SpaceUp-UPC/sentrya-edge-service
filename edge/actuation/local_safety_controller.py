@@ -12,6 +12,7 @@ Interfaz para el resto del edge:
 No debe llamarse dentro de una transaccion de base abierta: hace I/O de red y usa sesiones propias.
 """
 import json
+import threading
 import uuid
 from dataclasses import dataclass, field
 
@@ -62,6 +63,19 @@ class LocalSafetyController:
         self.clock = clock
         self.settings = settings
         self.dispatcher = dispatcher or SyncDispatcher()
+        # Seguro entre hilos (peticiones HTTP, tick, nube y el trabajador del despachador):
+        # `_lock` hace atomicos el registro de una orden, la decision de reconciliar y el acuse;
+        # el lock por nodo serializa los envios HTTP a una misma ESP32.
+        self._lock = threading.RLock()
+        self._node_locks: dict[str, threading.Lock] = {}
+        self._fail_leftover_pending()
+
+    def _fail_leftover_pending(self) -> None:
+        """Al arrancar: una orden PENDING de un proceso anterior nunca se envio. Queda FAILED,
+        asi la reconciliacion por heartbeat no la toma por una orden aun en camino."""
+        with self.db.session() as session:
+            for row in session.query(CommandRow).filter(CommandRow.status == "PENDING"):
+                row.status = "FAILED"
 
     # ---- entrada del Rules Engine ----
 
@@ -95,7 +109,7 @@ class LocalSafetyController:
         node = catalog.ACTUATOR_NODES[actuator]
         command_id = str(uuid.uuid4())
         now = iso_utc(self.clock.now_utc())
-        with self.db.session() as session:
+        with self._lock, self.db.session() as session:
             # Las ordenes previas aun sin cumplir quedan superadas por esta (reconciliacion, #6).
             for old in session.query(CommandRow).filter(
                     CommandRow.actuator == actuator, CommandRow.status.in_(("PENDING", "FAILED"))):
@@ -111,17 +125,29 @@ class LocalSafetyController:
             order.command_id, order.node, order.actuator, order.action, "PENDING")
 
     def _complete(self, order: "_Order") -> CommandResult:
-        """Entrega la orden a su nodo (con reintentos) y registra el acuse y el deseado."""
+        """Entrega la orden a su nodo (con reintentos) y registra el acuse y el deseado.
+
+        Una orden superada por otra mas nueva antes de enviarse no se envia: el actuador
+        termina siempre en la ultima orden registrada.
+        """
         command_id, node, actuator, action, params = (
             order.command_id, order.node, order.actuator, order.action, order.params)
-        status, simulated = self._deliver(self.node_ip(node), command_id, actuator, action, params)
+        with self._node_lock(node):
+            if self._last_status(command_id) == "SUPERSEDED":
+                log.info("Orden %s %s %s %s superada antes de enviarse: no se envia", node,
+                         actuator, action, params or "")
+                return CommandResult(command_id, node, actuator, action, "SUPERSEDED")
+            status, simulated = self._deliver(self.node_ip(node), command_id, actuator, action,
+                                              params)
 
         acked = iso_utc(self.clock.now_utc())
-        with self.db.session() as session:
+        with self._lock, self.db.session() as session:
             command = session.get(CommandRow, command_id)
+            # Superada mientras se enviaba: la mas nueva fija el deseado (se envia despues).
+            newer = command.status == "SUPERSEDED"
             command.status, command.simulated, command.acked_at = status, simulated, acked
             # Un unlock fallido no queda como deseado: nunca se reintenta solo (ADR 0003).
-            if not (action == "unlock" and status == "FAILED"):
+            if not newer and not (action == "unlock" and status == "FAILED"):
                 desired = session.get(DesiredStateRow, actuator)
                 if desired is None:
                     desired = DesiredStateRow(actuator=actuator)
@@ -133,6 +159,10 @@ class LocalSafetyController:
         log.info("Orden %s %s %s %s -> %s%s", node, actuator, action, params or "", status,
                  " (simulada)" if simulated else "")
         return CommandResult(command_id, node, actuator, action, status, simulated)
+
+    def _node_lock(self, node: str) -> threading.Lock:
+        with self._lock:
+            return self._node_locks.setdefault(node, threading.Lock())
 
     def _deliver(self, ip, command_id, actuator, action, params):
         if not ip:
@@ -164,22 +194,30 @@ class LocalSafetyController:
         - Un deseado `unlock` nunca se reconcilia: la cerradura vuelve a `locked` sola tras el
           pulso y un unlock fallido no queda como deseado (ADR 0003).
         - Un actuador que el heartbeat no reporta solo se reenvia si su ultima orden fallo.
+        - Un actuador con una orden aun en camino (PENDING) no se toca: esa orden es mas nueva
+          que el deseado. Decidir y registrar es atomico frente a `send`/`execute`.
         No debe llamarse dentro de una transaccion de base abierta.
         """
-        results = []
-        for actuator, desired in self.desired_state().items():
-            if catalog.ACTUATOR_NODES.get(actuator) != node or desired.action == "unlock":
-                continue
-            if actuator in reported:
-                if _matches(actuator, desired, reported[actuator]):
+        orders = []
+        with self._lock:
+            in_flight = self._pending_actuators()
+            for actuator, desired in self.desired_state().items():
+                if catalog.ACTUATOR_NODES.get(actuator) != node or desired.action == "unlock"                         or actuator in in_flight:
                     continue
-            elif self._last_status(desired.command_id) != "FAILED":
-                continue
-            log.info("Reconciliando %s: deseado %s %s, reportado %s", actuator, desired.action,
-                     desired.params or "", reported.get(actuator, "sin dato"))
-            results.append(self._dispatch(self._register(actuator, desired.action,
-                                                         dict(desired.params))))
-        return results
+                if actuator in reported:
+                    if _matches(actuator, desired, reported[actuator]):
+                        continue
+                elif self._last_status(desired.command_id) != "FAILED":
+                    continue
+                log.info("Reconciliando %s: deseado %s %s, reportado %s", actuator,
+                         desired.action, desired.params or "", reported.get(actuator, "sin dato"))
+                orders.append(self._register(actuator, desired.action, dict(desired.params)))
+        return [self._dispatch(order) for order in orders]
+
+    def _pending_actuators(self) -> set:
+        with self.db.session() as session:
+            return {r.actuator for r in session.query(CommandRow).filter(
+                CommandRow.status == "PENDING")}
 
     def _last_status(self, command_id):
         with self.db.session() as session:

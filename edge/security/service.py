@@ -21,7 +21,8 @@ log = get_logger("security")
 
 
 class SecurityService:
-    def __init__(self, db, clock, rules, controller, iot_client, devices, detector, settings):
+    def __init__(self, db, clock, rules, controller, iot_client, devices, detector, settings,
+                 lock=None):
         self.db = db
         self.clock = clock
         self.rules = rules
@@ -33,11 +34,11 @@ class SecurityService:
         self.sound = SoundAnalysisService(clock, settings.sound_triggers_required,
                                           settings.sound_window_seconds)
         self.person = PersonDetectionService(detector, clock, rules.thresholds)
-        self._lock = threading.RLock()
+        self._lock = lock or threading.RLock()
 
     @property
     def lock(self):
-        """Serializa las entradas de seguridad con el tick (ventana y sirena)."""
+        """El lock del edge: serializa las entradas de seguridad con el tick y las lecturas."""
         return self._lock
 
     # ---- entradas ----

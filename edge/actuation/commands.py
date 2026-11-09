@@ -9,7 +9,7 @@ def run_command(edge, device_key, action, params) -> dict:
     if action == "mode":   # AUTO/MANUAL: lo resuelve el modulo de reglas, no el actuador
         mode = params.get("mode")
         try:
-            with edge.db.session() as session:
+            with edge.lock, edge.db.session() as session:
                 known = edge.rules.set_mode(session, device_key, mode)
         except ValueError as error:
             raise ValidationError(str(error)) from None

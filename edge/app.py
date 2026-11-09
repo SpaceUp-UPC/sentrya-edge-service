@@ -47,12 +47,16 @@ class Edge:
         thresholds = thresholds_config.apply_profile(db, settings.profiles_dir, self.profile, clock)
         self.devices = load_devices(settings.devices_path)
         self.rules = RulesEngine(modules, clock, thresholds)
+        # Un solo lock para todo leer-modificar-guardar de subsystem_state (lecturas, tick,
+        # seguridad, modo, reset, nube). Nunca se tiene durante I/O con una ESP32: las ordenes
+        # de las reglas las envia el despachador.
+        self.lock = threading.RLock()
         self.controller = LocalSafetyController(db, esp32, clock, settings, dispatcher)
         self.iot_client = IoTCommunicationClient(db, publisher)
         self.sensor_manager = SensorManager(db, clock, self.devices, self.rules,
-                                            self.controller, settings.space_id)
+                                            self.controller, settings.space_id, self.lock)
         self.security = SecurityService(db, clock, self.rules, self.controller, self.iot_client,
-                                       self.devices, vision, settings)
+                                       self.devices, vision, settings, self.lock)
         self.security.recover()  # reinicio con una ventana abierta: timeout y escalamiento
         self.cloud_inbox = CloudInbox(self)
         if hasattr(publisher, "subscribe"):
@@ -66,7 +70,7 @@ class Edge:
 
     def tick(self) -> None:
         """Entrada periodica: avanza las reglas dependientes del tiempo y envia el outbox."""
-        with self.security.lock:  # no se cruza con una validacion o una intrusion en curso
+        with self.lock:  # no se cruza con una lectura, una validacion o una intrusion en curso
             with self.db.session() as session:
                 evaluations = self.rules.tick(session)
             for evaluation in evaluations:  # el controlador hace I/O: fuera de la transaccion
@@ -83,7 +87,7 @@ class Edge:
         """Demo: subsistemas al estado inicial y sirena, buzzer, ventilador y humidificador
         apagados, por las vias normales. Nunca desbloquea la cerradura."""
         log.info("REINICIO DE DEMO: subsistemas a su estado inicial")
-        with self.security.lock:
+        with self.lock:
             with self.db.session() as session:
                 self.rules.reset(session)
             self.security.reset()
