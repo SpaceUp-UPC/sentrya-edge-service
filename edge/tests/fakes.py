@@ -22,6 +22,10 @@ class FakeClock:
         self._mono += seconds
         self._utc += timedelta(seconds=seconds)
 
+    def jump_utc(self, seconds):
+        """Ajuste de la hora de pared (NTP, cambio manual): el reloj monotonico no se mueve."""
+        self._utc += timedelta(seconds=seconds)
+
 
 class FakeEsp32Client:
     """Registra las ordenes enviadas (`sent`, incluye reintentos) y simula fallos de la ESP32.

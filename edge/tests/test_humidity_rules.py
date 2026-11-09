@@ -106,6 +106,57 @@ def test_sensor_recovers_with_next_reading():
     assert not r.state["sensor_down"]
 
 
+def test_marks_from_a_previous_boot_are_discarded_instead_of_freezing_the_sensor_check():
+    r = Runner()
+    r.state = {**r.state, "last_value": 50, "last_reading_at": 10**9, "last_telemetry_at": 10**9}
+    r.step(TICK)                               # el reloj monotonico volvio a empezar
+    a, e = r.step(TICK, advance=31)
+    assert r.state["sensor_down"] and [x.metric_type for x in e] == ["device_error"]
+
+
+def test_wall_clock_jump_does_not_fake_a_sensor_down_or_telemetry():
+    r = Runner()
+    r.feed(50)
+    r.step(TICK)                               # telemetria inicial
+    r.clock.jump_utc(3600)                     # NTP adelanta la hora una hora
+    a, e = r.step(TICK, advance=5)
+    assert a == [] and e == [] and not r.state["sensor_down"]
+
+
+def test_sensor_silence_is_measured_with_the_monotonic_clock_even_if_utc_goes_back():
+    r = Runner()
+    r.feed(50)
+    r.step(TICK)                               # telemetria inicial
+    r.clock.jump_utc(-3600)
+    a, e = r.step(TICK, advance=31)
+    assert r.state["sensor_down"] and [x.metric_type for x in e] == ["device_error"]
+
+
+def test_sensor_recovering_while_low_turns_humidifier_back_on_in_auto():
+    r = Runner()
+    r.feed(35, 35, 35)                         # LOW: encendido
+    r.step(reading(error=True))                # sensor caido: apagado
+    assert r.actions[-1] == Action("humidifier", "off")
+    a, _ = r.step(reading(36))                 # vuelve con lectura baja
+    assert r.state["state"] == "LOW" and a == [Action("humidifier", "on")]
+
+
+def test_sensor_recovering_while_low_by_silence_turns_humidifier_back_on():
+    r = Runner()
+    r.feed(35, 35, 35)
+    r.step(TICK, advance=31)                   # silencio: caido
+    a, _ = r.step(reading(38))
+    assert a == [Action("humidifier", "on")]
+
+
+def test_sensor_recovering_while_low_in_manual_does_not_turn_humidifier_on():
+    r = Runner(mode="manual")
+    r.feed(35, 35, 35)
+    r.step(reading(error=True))
+    a, _ = r.step(reading(36))
+    assert a == []
+
+
 def test_manual_mode_never_turns_on_but_does_turn_off_for_high_and_sensor_down():
     r = Runner(mode="manual")
     r.feed(35, 35, 35)

@@ -6,6 +6,9 @@ Estados: NORMAL | LOW | HIGH. El sensor caido no es un estado: es la bandera `se
 
 La humedad no se publica lectura a lectura: se publica cada `telemetry_seconds` con la ultima
 lectura y de inmediato en cada cambio de estado (ver `publish_readings = False`).
+
+El sensor caido y la telemetria se miden con el reloj monotonico (`last_reading_at` y
+`last_telemetry_at` son marcas monotonicas): un ajuste de la hora UTC no los altera.
 """
 from edge.rules_engine import Action, Event
 
@@ -15,8 +18,14 @@ ACTUATOR = "humidifier"
 MODES = ("auto", "manual")
 
 
-def _ts(clock) -> float:
-    return clock.now_utc().timestamp()
+def _monotonic_now(clock, state) -> float:
+    """Marca monotonica actual. Si las marcas guardadas son de un reloj monotonico anterior
+    (reinicio del equipo: el reloj volvio a empezar), se descartan y se toma una linea base."""
+    now = clock.monotonic()
+    for key in ("last_reading_at", "last_telemetry_at"):
+        if state[key] is not None and state[key] > now:
+            state[key] = None
+    return now
 
 
 class HumidityRules:
@@ -49,7 +58,7 @@ class HumidityRules:
     # ---- lectura ----
 
     def _on_reading(self, cfg, state, input, clock):
-        now = _ts(clock)
+        now = _monotonic_now(clock, state)
         actions, events = [], []
         if input.extra.get("error") or input.value is None:   # el DHT22 devolvio error
             self._sensor_down(state, actions, events)
@@ -85,6 +94,10 @@ class HumidityRules:
                 state["state"] = "LOW"
                 if not manual:
                     self._humidifier(state, actions, "on")
+            elif state["state"] == "LOW" and not manual and state["humidifier"] == "off":
+                # Sigue en LOW pero apagado (el sensor cayo y se recupero): AUTO lo vuelve a
+                # encender con la lectura valida (historia 15).
+                self._humidifier(state, actions, "on")
 
         if state["state"] != before:
             events.append(self._telemetry(state, now))   # cambio de estado: publicacion inmediata
@@ -93,7 +106,7 @@ class HumidityRules:
     # ---- tick ----
 
     def _on_tick(self, cfg, state, clock):
-        now = _ts(clock)
+        now = _monotonic_now(clock, state)
         actions, events = [], []
         if state["last_reading_at"] is None:
             state["last_reading_at"] = now   # linea base: el silencio se mide desde el primer tick
