@@ -6,13 +6,13 @@ evidencia, se registra el evento y se encola la publicacion. Nunca al reves.
 import threading
 import uuid
 
-from edge.communication import outbox
+from edge.communication.events import enqueue_events
 from edge.security.person_detection import PersonDetectionService
 from edge.security.sound_analysis import SoundAnalysisService
 from edge.shared.clock import iso_utc
 from edge.shared.logging import get_logger
 from edge.shared.models import SecurityEventRow
-from edge.rules_engine import RuleInput
+from edge.rules_engine import Event
 
 log = get_logger("security")
 
@@ -75,20 +75,12 @@ class SecurityService:
     def _record_intrusion(self, event_id: str, local_state: str) -> None:
         evidence_ref = self._save_evidence(event_id)
         now = iso_utc(self.clock.now_utc())
-        device = self.devices.get("intrusion")
         with self.db.session() as session:
             session.add(SecurityEventRow(event_id=event_id, type="intrusion",
                                          evidence_path=evidence_ref, opened_at=now))
-            if device is None:
-                log.error("Falta el dispositivo 'intrusion' en devices.yaml: no se publica")
-                return
-            payload = {"deviceId": device.device_id, "metricType": "intrusion", "value": 1,
-                       "unit": "event", "readingId": event_id, "eventId": event_id,
-                       "measuredAt": now, "localState": local_state,
-                       "evidenceRef": evidence_ref}
-            outbox.enqueue(session, event_id,
-                           f"sentrya/{self.settings.space_id}/{device.device_id}/readings",
-                           payload, now)
+            enqueue_events(session, [Event("intrusion", "intrusion", {
+                "eventId": event_id, "localState": local_state, "evidenceRef": evidence_ref})],
+                self.devices, self.clock, self.settings.space_id)
         log.info("INTRUSION %s: sirena encendida, cerradura bloqueada, evidencia %s",
                  event_id, evidence_ref)
 
