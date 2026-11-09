@@ -72,6 +72,10 @@ class LocalSafetyController:
         command_id = str(uuid.uuid4())
         now = iso_utc(self.clock.now_utc())
         with self.db.session() as session:
+            # Las ordenes previas aun sin cumplir quedan superadas por esta (reconciliacion, #6).
+            for old in session.query(CommandRow).filter(
+                    CommandRow.actuator == actuator, CommandRow.status.in_(("PENDING", "FAILED"))):
+                old.status = "SUPERSEDED"
             session.add(CommandRow(command_id=command_id, node=node, actuator=actuator,
                                    action=action, params_json=json.dumps(params),
                                    status="PENDING", simulated=False, created_at=now))
@@ -120,6 +124,35 @@ class LocalSafetyController:
             params = {**params, "pulseSeconds": float(pulse)}
         return params
 
+    # ---- reconciliacion por heartbeat (#6) ----
+
+    def reconcile(self, node: str, reported: dict) -> list[CommandResult]:
+        """Compara el estado deseado con lo que reporta `node` y envia solo la diferencia.
+
+        - Un deseado `unlock` nunca se reconcilia: la cerradura vuelve a `locked` sola tras el
+          pulso y un unlock fallido no queda como deseado (ADR 0003).
+        - Un actuador que el heartbeat no reporta solo se reenvia si su ultima orden fallo.
+        No debe llamarse dentro de una transaccion de base abierta.
+        """
+        results = []
+        for actuator, desired in self.desired_state().items():
+            if catalog.ACTUATOR_NODES.get(actuator) != node or desired.action == "unlock":
+                continue
+            if actuator in reported:
+                if _matches(actuator, desired, reported[actuator]):
+                    continue
+            elif self._last_status(desired.command_id) != "FAILED":
+                continue
+            log.info("Reconciliando %s: deseado %s %s, reportado %s", actuator, desired.action,
+                     desired.params or "", reported.get(actuator, "sin dato"))
+            results.append(self.send(actuator, desired.action, dict(desired.params)))
+        return results
+
+    def _last_status(self, command_id):
+        with self.db.session() as session:
+            row = session.get(CommandRow, command_id) if command_id else None
+            return row.status if row else None
+
     # ---- consulta ----
 
     def desired_state(self) -> dict[str, DesiredState]:
@@ -132,3 +165,26 @@ class LocalSafetyController:
         with self.db.session() as session:
             row = session.get(NodeRow, node)
             return row.ip if row else None
+
+
+_EXPECTED = {
+    ("siren", "on"): {"on"}, ("siren", "off"): {"off"},
+    ("humidifier", "on"): {"on"}, ("humidifier", "off"): {"off"},
+    ("buzzer", "on"): {"on"}, ("buzzer", "off"): {"off"},
+    ("lock", "lock"): {"locked", "lock"},
+    ("valve", "open"): {"open", "opened"}, ("valve", "close"): {"closed", "close"},
+}
+
+
+def _matches(actuator: str, desired: DesiredState, reported) -> bool:
+    """Interpreta el valor reportado en el heartbeat. El ventilador acepta el duty numerico
+    ("50", 50) o on/off; el resto acepta las palabras de `_EXPECTED` (propuesta, ver pendientes)."""
+    if actuator == "fan":
+        duty = desired.params.get("duty", 0)
+        if isinstance(reported, str) and reported.strip().lower() in ("on", "off"):
+            return (reported.strip().lower() == "on") == (duty > 0)
+        try:
+            return float(reported) == float(duty)
+        except (TypeError, ValueError):
+            return False
+    return str(reported).strip().lower() in _EXPECTED.get((actuator, desired.action), set())
