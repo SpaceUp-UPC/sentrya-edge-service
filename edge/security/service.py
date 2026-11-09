@@ -88,6 +88,20 @@ class SecurityService:
             return {"eventId": open_id, "decision": decision,
                     "state": evaluation.state["state"]}
 
+    def reset(self) -> None:
+        """Demo: olvida sonidos y personas recientes y cierra la ventana abierta sin escalar.
+
+        El estado de las reglas lo reinicia el Rules Engine; los actuadores, el controlador.
+        """
+        with self._lock:
+            self.sound = SoundAnalysisService(self.clock, self.settings.sound_triggers_required,
+                                              self.settings.sound_window_seconds)
+            self.person = PersonDetectionService(self.detector, self.clock, self.rules.thresholds)
+            with self.db.session() as session:
+                for row in session.query(SecurityEventRow).filter(
+                        SecurityEventRow.closed_at.is_(None)).all():
+                    self._close(session, row.event_id, "reset")
+
     def recover(self) -> None:
         """Al arrancar: todo evento abierto se cierra como timeout y escala; no se retoma la ventana.
 
