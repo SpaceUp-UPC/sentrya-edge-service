@@ -12,18 +12,15 @@ NAME = "temperature"
 NORMAL, WARNING, CRITICAL = "NORMAL", "WARNING", "CRITICAL"
 RATE_WINDOW_SECONDS = 60.0
 
-DEFAULTS = {
-    "consecutive_readings": 3,
-    "rate_rise_enabled": False,
-    "rate_rise_c_per_min": 8,
-    "sampling_seconds": {"normal": 30, "warning": 5, "critical": 1},
-    "sensor_min_interval_seconds": 1,
-}
 
 
 class TemperatureRules:
     name = NAME
     metric_types = ("temperature",)
+    threshold_keys = ("t1_warning", "t2_critical", "hysteresis", "consecutive_readings",
+                      "rate_rise_enabled", "rate_rise_c_per_min", "sampling_seconds.normal",
+                      "sampling_seconds.warning", "sampling_seconds.critical",
+                      "sensor_min_interval_seconds")
 
     def initial_state(self) -> dict:
         return {"state": NORMAL, "consecutive": 0, "samples": []}
@@ -31,7 +28,7 @@ class TemperatureRules:
     def evaluate(self, input, state, clock):
         if input.kind != "reading" or input.metric_type != "temperature" or input.value is None:
             return dict(state), [], []
-        params = {**DEFAULTS, **input.thresholds.get("temperature", {})}
+        params = input.thresholds[NAME]   # todo sale del perfil (AGENTS.md §6)
         value = float(input.value)
         previous = state.get("state", NORMAL)
 

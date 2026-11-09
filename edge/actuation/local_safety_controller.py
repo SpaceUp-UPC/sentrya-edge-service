@@ -57,7 +57,7 @@ class DesiredState:
 
 
 class LocalSafetyController:
-    def __init__(self, db, esp32, clock, settings=None, dispatcher=None):
+    def __init__(self, db, esp32, clock, settings, dispatcher=None):
         self.db = db
         self.esp32 = esp32
         self.clock = clock
@@ -180,10 +180,8 @@ class LocalSafetyController:
         return "FAILED", False
 
     def _lock_params(self, actuator, action, params):
-        pulse = self.settings.lock_pulse_seconds if self.settings else 3
-        energize = self.settings.lock_energize_to_unlock if self.settings else True
-        if actuator == "lock" and action == "unlock" and energize:
-            params = {**params, "pulseSeconds": float(pulse)}
+        if actuator == "lock" and action == "unlock" and self.settings.lock_energize_to_unlock:
+            params = {**params, "pulseSeconds": float(self.settings.lock_pulse_seconds)}
         return params
 
     # ---- reconciliacion por heartbeat (#6) ----

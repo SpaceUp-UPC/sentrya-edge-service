@@ -22,6 +22,8 @@ def _ts(clock) -> float:
 class HumidityRules:
     name = NAME
     metric_types = ("humidity",)
+    threshold_keys = ("on_below", "off_at", "high_above", "high_hysteresis",
+                      "consecutive_readings", "read_interval_seconds", "telemetry_seconds")
     publish_readings = False   # el nucleo no encola cada lectura; la telemetria la emite el modulo
     mode_device_key = ACTUATOR   # /demo/commands {"deviceKey": "humidifier", "action": "mode"}
 

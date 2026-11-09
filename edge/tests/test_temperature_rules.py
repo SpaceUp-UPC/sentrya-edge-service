@@ -3,7 +3,11 @@ from edge.rules_engine import RuleInput
 from edge.temperature.rules import MODULE
 from edge.tests.fakes import FakeClock
 
-THRESHOLDS = {"temperature": {"t1_warning": 30, "t2_critical": 40, "hysteresis": 2}}
+THRESHOLDS = {"temperature": {"t1_warning": 30, "t2_critical": 40, "hysteresis": 2,
+                              "consecutive_readings": 3, "rate_rise_enabled": False,
+                              "rate_rise_c_per_min": 8,
+                              "sampling_seconds": {"normal": 30, "warning": 5, "critical": 1},
+                              "sensor_min_interval_seconds": 1}}
 
 
 def reading(value):

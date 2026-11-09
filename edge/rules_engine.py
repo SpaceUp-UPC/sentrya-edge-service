@@ -44,6 +44,7 @@ class Event:
 class RuleModule(Protocol):
     name: str
     metric_types: tuple
+    threshold_keys: tuple   # claves que exige en thresholds[name] ("a.b" = anidada)
     def initial_state(self) -> dict: ...
     def evaluate(self, input: RuleInput, state: dict, clock) -> tuple[dict, list, list]: ...
 
@@ -57,11 +58,27 @@ class Evaluation:
     publish_reading: bool = True  # False: el modulo publica por su cuenta (p. ej. humedad)
 
 
+def check_thresholds(modules, thresholds: dict) -> None:
+    """Al arrancar: el perfil debe traer todos los umbrales de cada modulo (no hay respaldo
+    en el codigo, AGENTS.md §6). Lanza ValueError con las claves que faltan."""
+    missing = []
+    for module in modules:
+        for key in getattr(module, "threshold_keys", ()):
+            node = thresholds.get(module.name) if isinstance(thresholds, dict) else None
+            for part in key.split("."):
+                node = node.get(part) if isinstance(node, dict) else None
+            if node is None:
+                missing.append(f"{module.name}.{key}")
+    if missing:
+        raise ValueError("El perfil de umbrales no define: " + ", ".join(missing))
+
+
 class RulesEngine:
     def __init__(self, modules: list, clock, thresholds: dict):
         self.modules = {m.name: m for m in modules}
         self.clock = clock
         self.thresholds = thresholds
+        check_thresholds(self.modules.values(), thresholds)
 
     def _run(self, session, module, rule_input) -> Evaluation:
         state, _ = state_store.load_state(session, module.name)

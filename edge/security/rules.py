@@ -35,6 +35,10 @@ ALARM = "ALARM"
 class SecurityRules:
     name = NAME
     metric_types = ()  # no consume lecturas: recibe entradas "security", "validation", "tick"
+    # Incluye los del Person Detection Service, que lee la misma seccion del perfil.
+    threshold_keys = ("correlation_window_seconds", "validation_window_seconds",
+                      "siren_max_seconds", "unknown_person_cooldown_seconds",
+                      "person_confidence", "face_match_confidence")
 
     def initial_state(self) -> dict:
         return {"state": MONITORING, "event_id": None, "opened_at": None,
