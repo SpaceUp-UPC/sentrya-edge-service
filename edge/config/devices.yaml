@@ -1,0 +1,7 @@
+# Mapeo de dispositivos logicos del edge a los ids que asigna IoT Monitoring.
+# Reemplazar "deviceId" por el id real al registrar el dispositivo en la nube.
+- key: temperature
+  node: node-3
+  deviceId: "REEMPLAZAR-ID-TEMPERATURA"
+  metricType: temperature
+  unit: C
