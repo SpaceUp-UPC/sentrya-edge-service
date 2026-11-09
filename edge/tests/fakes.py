@@ -71,7 +71,7 @@ class FakeMqttPublisher:
     def __init__(self):
         self.messages = []  # lista de dicts {topic, payload (dict), qos}
         self.broker_up = True
-        self.subscriptions = {}  # filtro -> handler(topic, payload_bytes)
+        self.subscriptions = {}  # filtro -> handler(topic, payload_bytes, retained)
 
     @property
     def connected(self):
@@ -80,7 +80,7 @@ class FakeMqttPublisher:
     def subscribe(self, topic_filter, handler, qos=1):
         self.subscriptions[topic_filter] = handler
 
-    def deliver(self, topic, payload):
+    def deliver(self, topic, payload, retain=False):
         """Inyecta un mensaje entrante (dict/str/bytes) como lo haria el hilo de paho.
 
         Como en paho, publicar desde el callback envia el mensaje pero el PUBACK no se procesa
@@ -94,7 +94,7 @@ class FakeMqttPublisher:
         try:
             for topic_filter, handler in list(self.subscriptions.items()):
                 if _topic_matches(topic_filter, topic):
-                    handler(topic, payload)
+                    handler(topic, payload, retain)
         finally:
             self._in_network_thread = False
 

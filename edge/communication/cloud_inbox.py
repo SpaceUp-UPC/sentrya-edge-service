@@ -36,7 +36,12 @@ class CloudInbox:
             publisher.subscribe(topic_filter, self._enqueuer(handler))
 
     def _enqueuer(self, handler):
-        def callback(topic, payload):   # hilo de paho: solo encola
+        def callback(topic, payload, retained=False):   # hilo de paho: solo encola
+            if retained and handler == self.on_config:
+                # El YAML manda en cada arranque (AGENTS.md §6): una config retenida que el
+                # broker reenvia al (re)conectar no lo pisa. Solo se aplica la config nueva.
+                log.info("Config retenida de la nube en %s: ignorada (manda el YAML)", topic)
+                return
             self._queue.put((handler, topic, payload))
         return callback
 

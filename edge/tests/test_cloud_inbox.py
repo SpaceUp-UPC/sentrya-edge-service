@@ -88,6 +88,26 @@ def test_config_changes_thresholds_and_is_saved_in_sqlite(harness):
     assert saved["temperature"]["t1_warning"] == 30 and saved["security"]["siren_max_seconds"] == 20
 
 
+def test_retained_config_is_ignored_because_the_yaml_rules_on_every_start(harness):
+    cloud(harness, f"{PREFIX}/config", {"temperature": {"t1_warning": 30}}, retain=True)
+    assert status(harness)["thresholds"]["temperature"]["t1_warning"] == 28
+    _, saved = thresholds_config.read_active(harness.db)
+    assert saved["temperature"]["t1_warning"] == 28
+
+
+def test_paho_publisher_passes_the_retain_flag():
+    stub = StubPahoClient()
+    publisher = PahoPublisher("tcp://localhost:1883", client=stub)
+    seen = []
+    publisher.subscribe("a/config", lambda topic, payload, retained: seen.append(retained))
+    publisher._on_connect(stub, None, None, 0, None)
+
+    class Message:
+        topic, payload, retain = "a/config", b"{}", True
+    stub.callbacks["a/config"](stub, None, Message())
+    assert seen == [True]
+
+
 def test_config_applies_to_the_next_readings(harness):
     cloud(harness, f"{PREFIX}/config", {"temperature": {"t1_warning": 20}})
     harness.heartbeat("node-3")

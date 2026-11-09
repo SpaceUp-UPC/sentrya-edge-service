@@ -45,4 +45,4 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 ## Nube -> edge (ticket #11)
 
 - [ ] Tópico `commands`: el segmento `{deviceId}` se resuelve con `devices.yaml`; si no coincide, se toma como nombre lógico del actuador (`valve`, `lock`, `humidifier`). El `deviceId` del dispositivo `humidity` se interpreta como el humidificador. Confirmar con IoT Monitoring cómo identificará los actuadores.
-- [ ] `config` (retained): el payload es el árbol de umbrales (igual que el YAML, parcial) o `{"thresholds": {...}}`. Como es retained, el broker lo reenvía tras cada reconexión o reinicio, y volverá a pisar el YAML; confirmar si la nube lo limpia.
+- [ ] `config`: el payload es el árbol de umbrales (igual que el YAML, parcial) o `{"thresholds": {...}}`. El edge **ignora los mensajes con flag retain** (el que el broker reenvía al reconectar o arrancar), porque el YAML manda en cada arranque (§6); solo aplica la config publicada mientras está conectado (en vivo llega sin el flag aunque la nube la publique retained). Confirmar con IoT Monitoring que les sirve así.
