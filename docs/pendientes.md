@@ -40,3 +40,8 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 - [ ] Equipo IoT Monitoring: registrar el dispositivo `intrusion` (`REEMPLAZAR-ID-INTRUSION` en `devices.yaml`); `evidenceRef` es una ruta relativa local (`evidence/<eventId>.png`), la nube no puede descargarla todavia.
 
 - **Formato de `actuators` en el heartbeat (ticket #6):** el edge compara el deseado con los valores `on`/`off` (siren, humidifier, buzzer), `locked`/`unlocked` (lock), `open`/`closed` (valve) y duty numerico u `on`/`off` (fan). Confirmar con quien programa las ESP32. Un `unlock` aplicado nunca se reconcilia (la cerradura se vuelve a cerrar sola tras el pulso).
+
+## Nube -> edge (ticket #11)
+
+- [ ] Tópico `commands`: el segmento `{deviceId}` se resuelve con `devices.yaml`; si no coincide, se toma como nombre lógico del actuador (`valve`, `lock`, `humidifier`). El `deviceId` del dispositivo `humidity` se interpreta como el humidificador. Confirmar con IoT Monitoring cómo identificará los actuadores.
+- [ ] `config` (retained): el payload es el árbol de umbrales (igual que el YAML, parcial) o `{"thresholds": {...}}`. Como es retained, el broker lo reenvía tras cada reconexión o reinicio, y volverá a pisar el YAML; confirmar si la nube lo limpia.

@@ -4,6 +4,7 @@ from datetime import datetime
 from flask import Blueprint, current_app, jsonify, request
 
 from edge.actuation import nodes
+from edge.actuation.commands import run_command
 from edge.communication import outbox
 from edge.security.camera import vision_status
 from edge.sensors.normalizers import ValidationError
@@ -54,23 +55,7 @@ def post_demo_command():
     if not isinstance(body, dict) or not isinstance(body.get("deviceKey"), str) \
             or not isinstance(body.get("action"), str):
         raise ValidationError("deviceKey y action son obligatorios")
-    params = body.get("params", {})
-    if not isinstance(params, dict):
-        raise ValidationError("params debe ser un objeto")
-    if body["action"] == "mode":   # AUTO/MANUAL: lo resuelve el modulo de reglas, no el actuador
-        mode = params.get("mode")
-        edge = _edge()
-        try:
-            with edge.db.session() as session:
-                known = edge.rules.set_mode(session, body["deviceKey"], mode)
-        except ValueError as error:
-            raise ValidationError(str(error)) from None
-        if not known:
-            raise ValidationError(f"{body['deviceKey']} no admite el modo")
-        return jsonify({"deviceKey": body["deviceKey"], "mode": mode})
-    result = _edge().controller.send(body["deviceKey"], body["action"], params)
-    return jsonify({"commandId": result.command_id, "status": result.status,
-                    "simulated": result.simulated})
+    return jsonify(run_command(_edge(), body["deviceKey"], body["action"], body.get("params", {})))
 
 
 @bp.post("/security/sound")
