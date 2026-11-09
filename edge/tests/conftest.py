@@ -79,17 +79,19 @@ def make_harness(tmp_path):
     shared = {"clock": FakeClock(), "esp32": FakeEsp32Client(),
               "mqtt": FakeMqttPublisher(), "vision": FakeVision()}
 
-    def build(_profiles_dir=None, **env):
+    def build(_profiles_dir=None, _vision=None, **env):
+        """`_vision` reemplaza la vision falsa compartida (p. ej. una CameraVision con fuente falsa)."""
         values = {"SPACE_ID": "7", "THRESHOLD_PROFILE": "demo"}
         values.update(env)
         settings = Settings.from_env(
             values, profiles_dir=_profiles_dir or CONFIG_DIR / "profiles",
             devices_path=devices, evidence_dir=tmp_path / "evidence", db_url=f"sqlite:///{db_path.as_posix()}")
         db = Database(settings.db_url)
+        vision = _vision if _vision is not None else shared["vision"]
         app = create_app(settings, clock=shared["clock"], esp32=shared["esp32"],
-                         publisher=shared["mqtt"], vision=shared["vision"], db=db)
+                         publisher=shared["mqtt"], vision=vision, db=db)
         return Harness(app, app.test_client(), shared["clock"], shared["esp32"],
-                       shared["mqtt"], shared["vision"], db, settings)
+                       shared["mqtt"], vision, db, settings)
 
     return build
 

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Mapping
 
 PACKAGE_DIR = Path(__file__).resolve().parents[1]
+MODELS_DIR = PACKAGE_DIR / "data" / "models"  # modelos de vision: no se versionan (docs/vision.md)
 
 
 def _bool(value: str) -> bool:
@@ -23,6 +24,7 @@ class Settings:
     camera_stream_url: str = ""
     person_detector: str = "mock"
     face_recognizer: str = "mock"
+    camera_fps: float = 3
     sound_triggers_required: int = 1
     sound_window_seconds: float = 3
     lock_energize_to_unlock: bool = True
@@ -30,6 +32,10 @@ class Settings:
     enable_simulation: bool = True
     retention_days: int = 7
     evidence_dir: Path = PACKAGE_DIR / "data" / "evidence"
+    known_faces_dir: Path = PACKAGE_DIR / "data" / "known_faces"
+    person_model_path: Path = MODELS_DIR / "object_detection_yolox_2022nov.onnx"
+    face_detector_model_path: Path = MODELS_DIR / "face_detection_yunet_2023mar.onnx"
+    face_recognizer_model_path: Path = MODELS_DIR / "face_recognition_sface_2021dec.onnx"
     profiles_dir: Path = PACKAGE_DIR / "config" / "profiles"
     devices_path: Path = PACKAGE_DIR / "config" / "devices.yaml"
     db_url: str = f"sqlite:///{(PACKAGE_DIR / 'data' / 'edge.db').as_posix()}"
@@ -53,6 +59,7 @@ class Settings:
             camera_stream_url=get("CAMERA_STREAM_URL", ""),
             person_detector=get("PERSON_DETECTOR", d.person_detector),
             face_recognizer=get("FACE_RECOGNIZER", d.face_recognizer),
+            camera_fps=float(get("CAMERA_FPS", d.camera_fps)),
             sound_triggers_required=int(get("SOUND_TRIGGERS_REQUIRED", d.sound_triggers_required)),
             sound_window_seconds=float(get("SOUND_WINDOW_SECONDS", d.sound_window_seconds)),
             lock_energize_to_unlock=_bool(get("LOCK_ENERGIZE_TO_UNLOCK", "true")),
@@ -60,6 +67,11 @@ class Settings:
             enable_simulation=_bool(get("ENABLE_SIMULATION", "true")),
             retention_days=int(get("RETENTION_DAYS", d.retention_days)),
             evidence_dir=Path(get("EVIDENCE_DIR", d.evidence_dir)),
+            known_faces_dir=Path(get("KNOWN_FACES_DIR", d.known_faces_dir)),
+            person_model_path=Path(get("PERSON_MODEL_PATH", d.person_model_path)),
+            face_detector_model_path=Path(get("FACE_DETECTOR_MODEL_PATH", d.face_detector_model_path)),
+            face_recognizer_model_path=Path(get("FACE_RECOGNIZER_MODEL_PATH",
+                                                d.face_recognizer_model_path)),
         )
         values.update(overrides)
         return cls(**values)
