@@ -1,20 +1,38 @@
-"""Publicador MQTT real (paho-mqtt 2.x). No se prueba en CI: se verifica contra Mosquitto."""
+"""Publicador/suscriptor MQTT real (paho-mqtt 2.x). Se verifica contra Mosquitto, no en CI."""
 from urllib.parse import urlparse
 
 import paho.mqtt.client as mqtt
 
 
 class PahoPublisher:
-    def __init__(self, broker_url: str, username: str = "", password: str = "", tls: bool = False):
+    def __init__(self, broker_url: str, username: str = "", password: str = "", tls: bool = False,
+                 client=None):
         url = urlparse(broker_url)
         self._host = url.hostname or "localhost"
         self._port = url.port or (8883 if tls else 1883)
-        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._client = client or mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._subscriptions = {}   # filtro -> handler(topic, payload_bytes)
         if username:
             self._client.username_pw_set(username, password)
         if tls:
             self._client.tls_set()
         self._client.reconnect_delay_set(min_delay=1, max_delay=30)
+        self._client.on_connect = self._on_connect
+
+    def subscribe(self, topic_filter: str, handler, qos: int = 1) -> None:
+        """Registra la suscripcion; se rehace en cada conexion (tambien tras reconectar)."""
+        self._subscriptions[topic_filter] = (handler, qos)
+        if self._client.is_connected():
+            self._apply(topic_filter, handler, qos)
+
+    def _apply(self, topic_filter, handler, qos) -> None:
+        self._client.message_callback_add(
+            topic_filter, lambda _client, _userdata, message: handler(message.topic, message.payload))
+        self._client.subscribe(topic_filter, qos=qos)
+
+    def _on_connect(self, _client, _userdata, _flags, _reason_code, _properties=None) -> None:
+        for topic_filter, (handler, qos) in list(self._subscriptions.items()):
+            self._apply(topic_filter, handler, qos)
 
     def start(self) -> None:
         self._client.connect_async(self._host, self._port)

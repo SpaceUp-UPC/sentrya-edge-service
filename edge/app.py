@@ -5,6 +5,7 @@ import threading
 from flask import Flask
 
 from edge.actuation.local_safety_controller import LocalSafetyController
+from edge.communication.cloud_inbox import CloudInbox
 from edge.communication.events import enqueue_events
 from edge.communication.iot_client import IoTCommunicationClient
 from edge.config import thresholds as thresholds_config
@@ -53,6 +54,9 @@ class Edge:
         self.security = SecurityService(db, clock, self.rules, self.controller, self.iot_client,
                                        self.devices, vision, settings)
         self.security.recover()  # reinicio con una ventana abierta: timeout y escalamiento
+        self.cloud_inbox = CloudInbox(self)
+        if hasattr(publisher, "subscribe"):
+            self.cloud_inbox.subscribe(publisher)
         self._stop = threading.Event()
         self._thread = None
 

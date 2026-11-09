@@ -60,16 +60,35 @@ class FakeEsp32Client:
         return reply
 
 
+def _topic_matches(topic_filter, topic):
+    f, t = topic_filter.split("/"), topic.split("/")
+    return len(f) == len(t) and all(a in ("+", b) for a, b in zip(f, t))
+
+
 class FakeMqttPublisher:
     """Broker falso. `broker_up = False` simula caida: publish devuelve False (sin PUBACK)."""
 
     def __init__(self):
         self.messages = []  # lista de dicts {topic, payload (dict), qos}
         self.broker_up = True
+        self.subscriptions = {}  # filtro -> handler(topic, payload_bytes)
 
     @property
     def connected(self):
         return self.broker_up
+
+    def subscribe(self, topic_filter, handler, qos=1):
+        self.subscriptions[topic_filter] = handler
+
+    def deliver(self, topic, payload):
+        """Inyecta un mensaje entrante (dict/str/bytes) como lo haria el hilo de paho."""
+        if isinstance(payload, (dict, list)):
+            payload = json.dumps(payload)
+        if isinstance(payload, str):
+            payload = payload.encode("utf-8")
+        for topic_filter, handler in list(self.subscriptions.items()):
+            if _topic_matches(topic_filter, topic):
+                handler(topic, payload)
 
     def publish(self, topic, payload, qos=1):
         if not self.broker_up:
