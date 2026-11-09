@@ -1,0 +1,24 @@
+# Mapeo de dispositivos logicos del edge a los ids que asigna IoT Monitoring.
+# Reemplazar "deviceId" por el id real al registrar el dispositivo en la nube.
+- key: temperature
+  node: node-3
+  deviceId: "REEMPLAZAR-ID-TEMPERATURA"
+  metricType: temperature
+  unit: C
+
+- key: humidity
+  node: node-2
+  deviceId: "REEMPLAZAR-ID-HUMEDAD"
+  metricType: humidity
+  unit: "%"
+- key: intrusion
+  node: node-1
+  deviceId: "REEMPLAZAR-ID-INTRUSION"
+  metricType: intrusion
+  unit: event
+# Eventos publicados como lecturas (ADR 0001): se registran en la nube con umbral maximo 0.
+- key: escalation
+  node: edge
+  deviceId: "REEMPLAZAR-ID-ESCALAMIENTO"
+  metricType: escalation
+  unit: event

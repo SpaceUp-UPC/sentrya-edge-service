@@ -1,0 +1,25 @@
+# Perfil "demo": valores de la maqueta. Editar y reiniciar para calibrar.
+temperature:
+  t1_warning: 28
+  t2_critical: 32
+  hysteresis: 1
+  consecutive_readings: 3
+  rate_rise_enabled: false
+  rate_rise_c_per_min: 8
+  sampling_seconds: {normal: 30, warning: 5, critical: 1}
+  sensor_min_interval_seconds: 1
+humidity:
+  on_below: 40        # CALIBRAR con la humedad de la sala
+  off_at: 55
+  high_above: 65      # CALIBRAR con la humedad de la sala
+  high_hysteresis: 3
+  consecutive_readings: 3
+  read_interval_seconds: 10
+  telemetry_seconds: 60
+security:
+  correlation_window_seconds: 10
+  validation_window_seconds: 30
+  siren_max_seconds: 15
+  unknown_person_cooldown_seconds: 10
+  person_confidence: 0.70
+  face_match_confidence: 0.80
