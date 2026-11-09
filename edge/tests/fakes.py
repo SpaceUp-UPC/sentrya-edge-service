@@ -2,6 +2,8 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+from edge.security.person_detection import MockPersonDetector
+
 
 class FakeClock:
     """Reloj controlable: monotonic() en segundos y now_utc() con zona UTC."""
@@ -76,10 +78,5 @@ class FakeMqttPublisher:
         return True
 
 
-class FakeVision:
-    """Vision falsa: el test fija las marcas de 'ultima persona vista'."""
-
-    def __init__(self):
-        self.last_unknown_person_at = None
-        self.last_known_person_at = None
-        self.available = True
+class FakeVision(MockPersonDetector):
+    """Vision falsa: el detector mock (las personas se inyectan por /simulate/security/person)."""

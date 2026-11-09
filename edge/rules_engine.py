@@ -71,6 +71,11 @@ class RulesEngine:
         return [self._run(session, m, rule_input)
                 for m in self.modules.values() if metric_type in m.metric_types]
 
+    def handle_input(self, session, subsystem, kind, extra) -> Evaluation:
+        """Entrada no basada en lecturas (sonido, persona, validacion) para un modulo concreto."""
+        rule_input = RuleInput(kind, self.thresholds, extra=extra)
+        return self._run(session, self.modules[subsystem], rule_input)
+
     def tick(self, session) -> list[Evaluation]:
         rule_input = RuleInput("tick", self.thresholds)
         return [self._run(session, m, rule_input) for m in self.modules.values()]
