@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from edge.communication import outbox
-from edge.communication.events import publish_events
+from edge.communication.events import enqueue_events
 from edge.shared.clock import iso_utc
 from edge.shared.logging import get_logger
 from edge.shared.models import ReadingRow
@@ -30,8 +30,12 @@ class SensorManager:
             evaluations = self.rules.handle_reading(
                 session, device.key, reading.metric_type, reading.value,
                 {"error": True} if reading.error else None)
-            local_state = evaluations[0].state["state"] if evaluations else None
-            publish_events(session, evaluations, self.devices, self.space_id, self.clock)
+        # El controlador hace I/O de red: se acciona fuera de la transaccion y ANTES de
+        # persistir la lectura y encolarla para MQTT ("primero se acciona").
+        for evaluation in evaluations:
+            self.controller.execute(evaluation.actions)
+        local_state = evaluations[0].state["state"] if evaluations else None
+        with self.db.session() as session:
             # Lectura con error (sin valor) no se guarda; si el modulo publica por su cuenta
             # (humedad: telemetria), tampoco se encola cada lectura.
             if not reading.error:
@@ -47,9 +51,8 @@ class SensorManager:
                     outbox.enqueue(session, reading_id,
                                    f"sentrya/{self.space_id}/{device.device_id}/readings",
                                    payload, iso_utc(self.clock.now_utc()))
-        # El controlador hace I/O de red: se acciona fuera de la transaccion (no bloquea la base).
-        for evaluation in evaluations:
-            self.controller.execute(evaluation.actions)
+            for evaluation in evaluations:
+                enqueue_events(session, evaluation.events, self.devices, self.clock, self.space_id)
         log.info("Lectura %s=%s %s (%s) -> %s", device.key, reading.value, reading.unit,
                  reading.measured_at, local_state)
         return {"readingId": reading_id, "localState": local_state}

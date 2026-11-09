@@ -21,6 +21,11 @@ DEVICES_YAML = """
   deviceId: "dev-hum-1"
   metricType: humidity
   unit: "%"
+- key: escalation
+  node: edge
+  deviceId: "dev-escalation-1"
+  metricType: escalation
+  unit: event
 """
 
 
