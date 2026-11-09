@@ -25,6 +25,10 @@ class TemperatureRules:
     def initial_state(self) -> dict:
         return {"state": NORMAL, "consecutive": 0, "samples": []}
 
+    def reset_actions(self, thresholds) -> list:
+        """Demo: actuadores y muestreo de NORMAL (ventilador y buzzer apagados)."""
+        return self._actions(CRITICAL, NORMAL, thresholds[NAME])
+
     def evaluate(self, input, state, clock):
         if input.kind != "reading" or input.metric_type != "temperature" or input.value is None:
             return dict(state), [], []

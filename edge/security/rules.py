@@ -44,6 +44,10 @@ class SecurityRules:
         return {"state": MONITORING, "event_id": None, "opened_at": None,
                 "consumed_person_at": None, "consumed_sound_at": None}
 
+    def reset_actions(self, thresholds) -> list:
+        """Demo: sirena apagada. La cerradura no se toca (ADR 0003)."""
+        return [Action("siren", "off")]
+
     def evaluate(self, input, state, clock):
         state = dict(state)
         handler = {"security": self._correlate, "validation": self._validate,

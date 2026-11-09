@@ -11,7 +11,7 @@ from edge.communication.iot_client import IoTCommunicationClient
 from edge.config import thresholds as thresholds_config
 from edge.config.devices import load_devices
 from edge.config.settings import Settings
-from edge.rules_engine import Action, RulesEngine
+from edge.rules_engine import RulesEngine
 from edge.sensors import api
 from edge.sensors.sensor_manager import SensorManager
 from edge.security import rules as security_rules
@@ -86,16 +86,18 @@ class Edge:
         self.iot_client.flush()
 
     def reset(self) -> list:
-        """Demo: subsistemas al estado inicial y sirena, buzzer, ventilador y humidificador
-        apagados, por las vias normales. Nunca desbloquea la cerradura."""
+        """Demo: subsistemas al estado inicial (el modo del humidificador se conserva) y
+        sirena, buzzer, ventilador y humidificador apagados y muestreo de NORMAL, por las vias
+        normales. Nunca toca la cerradura."""
         log.info("REINICIO DE DEMO: subsistemas a su estado inicial")
         with self.lock:
             with self.db.session() as session:
-                self.rules.reset(session)
+                orders = self.rules.reset(session)
             self.security.reset()
-            return self.controller.execute([
-                Action("siren", "off"), Action("buzzer", "off"),
-                Action("fan", "set", {"duty": 0}), Action("humidifier", "off")])
+            results = []
+            for _subsystem, actions in orders:
+                results += self.controller.execute(actions)
+            return results
 
     def start_background(self, interval: float = 1.0) -> None:
         """Hilo unico de tick (reglas + outbox) y, con vision real, el de camara. Una sola vez."""

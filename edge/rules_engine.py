@@ -97,15 +97,24 @@ class RulesEngine:
             return f"lectura {rule_input.device_key}={rule_input.value}"
         return f"entrada {rule_input.kind}"
 
-    def reset(self, session) -> None:
-        """Demo: todos los modulos vuelven a su estado inicial (modo AUTO incluido)."""
+    def reset(self, session) -> list[tuple[str, list]]:
+        """Demo: todos los modulos vuelven a su estado inicial, salvo el modo AUTO/MANUAL, que
+        se conserva. Devuelve, por modulo, las ordenes que dejan sus actuadores en ese estado
+        (`reset_actions(thresholds)` de cada modulo; nunca un unlock)."""
+        out = []
         for module in self.modules.values():
             state, _ = state_store.load_state(session, module.name)
             initial = module.initial_state()
+            if state is not None and "mode" in state and "mode" in initial:
+                initial["mode"] = state["mode"]
             if state is not None and state["state"] != initial["state"]:
                 log.info("[%s] %s -> %s (motivo: reinicio de demo)", module.name,
                          state["state"], initial["state"])
             state_store.save_state(session, module.name, initial, iso_utc(self.clock.now_utc()))
+            reset_actions = getattr(module, "reset_actions", None)
+            if reset_actions is not None:
+                out.append((module.name, list(reset_actions(self.thresholds))))
+        return out
 
     def handle_reading(self, session, device_key, metric_type, value, extra=None) -> list[Evaluation]:
         rule_input = RuleInput("reading", self.thresholds, device_key, metric_type, value,

@@ -50,6 +50,21 @@ def test_reset_after_intrusion_and_critical_restores_initial_state_without_unloc
     assert all(actuator != "lock" for actuator, _, _ in sent)
 
 
+def test_reset_asks_node_3_for_the_normal_sampling_interval(h):
+    critical(h)
+    h.esp32.sent.clear()
+    reset(h)
+    sampling = [(ip, b["params"]) for ip, b in h.esp32.sent if b["actuator"] == "sampling"]
+    assert sampling == [("10.0.0.3", {"intervalSeconds": 30})]
+
+
+def test_reset_keeps_the_humidifier_mode(h):
+    h.command("humidifier", "mode", mode="manual")
+    reset(h)
+    assert status(h)["subsystems"]["humidity"]["mode"] == "manual"
+    assert ("humidifier", "off", {}) in orders(h)
+
+
 def test_reset_closes_the_open_window_and_does_not_escalate_later(h):
     person(h)
     sound(h)

@@ -41,6 +41,10 @@ class HumidityRules:
                 "low_count": 0, "high_count": 0, "exit_high_count": 0,
                 "last_value": None, "last_reading_at": None, "last_telemetry_at": None}
 
+    def reset_actions(self, thresholds) -> list:
+        """Demo: humidificador apagado (el modo AUTO/MANUAL se conserva)."""
+        return [Action(ACTUATOR, "off")]
+
     def set_mode(self, state: dict, mode: str) -> dict:
         if mode not in MODES:
             raise ValueError(f"modo invalido: {mode}")
