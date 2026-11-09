@@ -5,6 +5,7 @@ import threading
 from flask import Flask
 
 from edge.actuation.local_safety_controller import LocalSafetyController
+from edge.communication.events import enqueue_events
 from edge.communication.iot_client import IoTCommunicationClient
 from edge.config import thresholds as thresholds_config
 from edge.config.devices import load_devices
@@ -50,15 +51,23 @@ class Edge:
                                             self.controller, settings.space_id)
         self.security = SecurityService(db, clock, self.rules, self.controller, self.iot_client,
                                        self.devices, vision, settings)
+        self.security.recover()  # reinicio con una ventana abierta: timeout y escalamiento
         self._stop = threading.Event()
         self._thread = None
 
     def tick(self) -> None:
         """Entrada periodica: avanza las reglas dependientes del tiempo y envia el outbox."""
-        with self.db.session() as session:
-            evaluations = self.rules.tick(session)
-        for evaluation in evaluations:  # el controlador hace I/O: fuera de la transaccion
-            self.controller.execute(evaluation.actions)
+        with self.security.lock:  # no se cruza con una validacion o una intrusion en curso
+            with self.db.session() as session:
+                evaluations = self.rules.tick(session)
+            for evaluation in evaluations:  # el controlador hace I/O: fuera de la transaccion
+                self.controller.execute(evaluation.actions)   # primero se acciona
+            if any(e.events for e in evaluations):
+                with self.db.session() as session:
+                    for evaluation in evaluations:
+                        self.security.record_outcome(session, evaluation)
+                        enqueue_events(session, evaluation.events, self.devices, self.clock,
+                                       self.settings.space_id)
         self.iot_client.flush()
 
     def start_background(self, interval: float = 1.0) -> None:
