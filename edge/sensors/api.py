@@ -132,16 +132,6 @@ def post_demo_reset():
          "status": r.status} for r in results]})
 
 
-def _camera_status(vision) -> str:
-    """mock | ok | degraded. Un detector real puede exponer `camera_status()` (ticket de vision)."""
-    custom = getattr(vision, "camera_status", None)
-    if callable(custom):
-        return custom()
-    if not getattr(vision, "available", True):
-        return "degraded"
-    return "mock" if hasattr(vision, "inject") else "ok"
-
-
 @bp.get("/status")
 def get_status():
     edge = _edge()
@@ -160,5 +150,4 @@ def get_status():
         "actuators": actuator_view,
         "outbox": {"pending": pending},
         "mqtt": {"connected": edge.iot_client.connected},
-        "camera": {"status": _camera_status(edge.vision)},
     })

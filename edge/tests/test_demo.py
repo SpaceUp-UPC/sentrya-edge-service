@@ -117,18 +117,8 @@ def test_transitions_and_orders_are_logged_with_subsystem_before_after_and_reaso
     assert "Orden node-3 fan set" in text
 
 
-def test_status_reports_camera_outbox_actuators_and_mqtt(h):
+def test_status_reports_subsystems_camera_outbox_actuators_and_mqtt(h):
     body = status(h)
-    assert body["camera"] == {"status": "mock"}
+    assert body["subsystems"]["security"]["camera"] == "MOCK"
     assert body["outbox"] == {"pending": 0}
-    assert "actuators" in body and "subsystems" in body and body["mqtt"] == {"connected": True}
-
-
-def test_status_reports_degraded_camera(h):
-    h.vision.available = False
-    assert status(h)["camera"]["status"] == "degraded"
-
-
-def test_status_uses_camera_status_of_the_detector_when_it_has_one(h):
-    h.vision.camera_status = lambda: "ok"
-    assert status(h)["camera"]["status"] == "ok"
+    assert "actuators" in body and body["mqtt"] == {"connected": True}
