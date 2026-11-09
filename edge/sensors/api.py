@@ -79,6 +79,21 @@ def post_security_sound():
     return jsonify({"suspicious": _edge().security.on_sound_shot()}), 201
 
 
+@bp.post("/demo/security/validation")
+def post_demo_validation():
+    """Simula la respuesta del usuario en la app (la misma via que el topico MQTT)."""
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get("decision") not in ("confirm", "reject"):
+        raise ValidationError("decision debe ser 'confirm' o 'reject'")
+    event_id = body.get("eventId")
+    if event_id is not None and not isinstance(event_id, str):
+        raise ValidationError("eventId debe ser un string")
+    result = _edge().security.validate(body["decision"], event_id)
+    if result is None:
+        return jsonify({"error": "no hay una ventana de validacion abierta para ese evento"}), 409
+    return jsonify(result)
+
+
 @bp.post("/simulate/security/person")
 def post_simulate_person():
     edge = _edge()

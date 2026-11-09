@@ -68,7 +68,8 @@ def test_startup_purges_old_synced_data_but_never_unsynced_or_security(make_harn
     with first.db.session() as session:
         session.add(CommandRow(command_id="c1", node="node-3", actuator="fan", action="on",
                                status="APPLIED", created_at=old))
-        session.add(SecurityEventRow(event_id="e1", type="intrusion", opened_at=old))
+        session.add(SecurityEventRow(event_id="e1", type="intrusion", opened_at=old,
+                                    closed_at=old, validation="rejected"))
 
     first.clock.advance(8 * 86400)
     second = make_harness(RETENTION_DAYS="7")
