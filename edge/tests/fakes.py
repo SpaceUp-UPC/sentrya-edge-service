@@ -81,20 +81,28 @@ class FakeMqttPublisher:
         self.subscriptions[topic_filter] = handler
 
     def deliver(self, topic, payload):
-        """Inyecta un mensaje entrante (dict/str/bytes) como lo haria el hilo de paho."""
+        """Inyecta un mensaje entrante (dict/str/bytes) como lo haria el hilo de paho.
+
+        Como en paho, publicar desde el callback envia el mensaje pero el PUBACK no se procesa
+        mientras el hilo de red esta ocupado: `publish` devuelve False (falso fallo).
+        """
         if isinstance(payload, (dict, list)):
             payload = json.dumps(payload)
         if isinstance(payload, str):
             payload = payload.encode("utf-8")
-        for topic_filter, handler in list(self.subscriptions.items()):
-            if _topic_matches(topic_filter, topic):
-                handler(topic, payload)
+        self._in_network_thread = True
+        try:
+            for topic_filter, handler in list(self.subscriptions.items()):
+                if _topic_matches(topic_filter, topic):
+                    handler(topic, payload)
+        finally:
+            self._in_network_thread = False
 
     def publish(self, topic, payload, qos=1):
         if not self.broker_up:
             return False
         self.messages.append({"topic": topic, "payload": json.loads(payload), "qos": qos})
-        return True
+        return not getattr(self, "_in_network_thread", False)
 
 
 class FakeVision(MockPersonDetector):

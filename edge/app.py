@@ -69,7 +69,9 @@ class Edge:
         self._thread = None
 
     def tick(self) -> None:
-        """Entrada periodica: avanza las reglas dependientes del tiempo y envia el outbox."""
+        """Entrada periodica: atiende los mensajes de la nube, avanza las reglas dependientes
+        del tiempo y envia el outbox."""
+        self.cloud_inbox.process_pending()
         with self.lock:  # no se cruza con una lectura, una validacion o una intrusion en curso
             with self.db.session() as session:
                 evaluations = self.rules.tick(session)
