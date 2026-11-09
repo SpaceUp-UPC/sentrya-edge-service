@@ -13,6 +13,7 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 - [ ] ¿Las ESP32 tienen hora (NTP)? Si no, el edge pone la marca de tiempo.
 - [ ] Intervalo de heartbeat (la reconciliación de actuadores depende de él).
 - [ ] Cerradura: el edge manda `unlock` con `params.pulseSeconds` solo si `LOCK_ENERGIZE_TO_UNLOCK=true`; confirmar quién aplica la polaridad en la ESP32.
+- [ ] ¿El servidor HTTP de cada ESP32 (`POST /command`) atiende mientras su cliente HTTP espera la respuesta de una lectura, un disparo de sonido o un heartbeat? Por si no, el edge nunca envía la orden dentro de esa petición: la registra y un hilo trabajador la envía en cuanto la petición se libera (despachador del Local Safety Controller). Confirmar el comportamiento real.
 - [ ] Heartbeat: el edge acepta `node-1`, `node-2`, `node-3` (más los de `devices.yaml`); confirmar los nombres reales.
 
 ## Equipo IoT Monitoring

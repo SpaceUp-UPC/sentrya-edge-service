@@ -35,7 +35,7 @@ def default_modules() -> list:
 class Edge:
     """Contenedor de componentes; vive en app.extensions['edge']."""
 
-    def __init__(self, settings, clock, db, esp32, publisher, vision, modules):
+    def __init__(self, settings, clock, db, esp32, publisher, vision, modules, dispatcher=None):
         self.settings = settings
         self.clock = clock
         self.db = db
@@ -47,7 +47,7 @@ class Edge:
         thresholds = thresholds_config.apply_profile(db, settings.profiles_dir, self.profile, clock)
         self.devices = load_devices(settings.devices_path)
         self.rules = RulesEngine(modules, clock, thresholds)
-        self.controller = LocalSafetyController(db, esp32, clock, settings)
+        self.controller = LocalSafetyController(db, esp32, clock, settings, dispatcher)
         self.iot_client = IoTCommunicationClient(db, publisher)
         self.sensor_manager = SensorManager(db, clock, self.devices, self.rules,
                                             self.controller, settings.space_id)
@@ -109,11 +109,13 @@ class Edge:
 
 
 def create_app(settings, *, clock, esp32, publisher, vision, db=None, modules=None,
-               start_background=False) -> Flask:
+               dispatcher=None, start_background=False) -> Flask:
+    """`dispatcher`: despachador de ordenes del LSC; sincrono por defecto (pruebas), con hilo
+    trabajador en produccion (`build_default_app`)."""
     db = db or Database(settings.db_url)
     app = Flask("edge")
     edge = Edge(settings, clock, db, esp32, publisher, vision,
-                modules if modules is not None else default_modules())
+                modules if modules is not None else default_modules(), dispatcher)
     app.extensions["edge"] = edge
     app.register_blueprint(api.bp)
     if start_background:
@@ -124,6 +126,7 @@ def create_app(settings, *, clock, esp32, publisher, vision, db=None, modules=No
 def build_default_app() -> Flask:
     """App de produccion: reloj, ESP32 y MQTT reales; vision segun PERSON_DETECTOR (mock por defecto)."""
     from dotenv import load_dotenv
+    from edge.actuation.dispatcher import ThreadDispatcher
     from edge.actuation.esp32_client import RequestsEsp32Client
     from edge.communication.mqtt_publisher import PahoPublisher
 
@@ -134,7 +137,8 @@ def build_default_app() -> Flask:
                               settings.mqtt_password, settings.mqtt_tls)
     publisher.start()
     return create_app(settings, clock=SystemClock(), esp32=RequestsEsp32Client(),
-                      publisher=publisher, vision=build_vision(settings), start_background=True)
+                      publisher=publisher, vision=build_vision(settings),
+                      dispatcher=ThreadDispatcher(), start_background=True)
 
 
 def main() -> None:

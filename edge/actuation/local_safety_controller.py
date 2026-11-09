@@ -1,9 +1,11 @@
 """Local Safety Controller: UNICO componente que envia ordenes a las ESP32.
 
 Interfaz para el resto del edge:
-- `execute(actions)`: entrada del Rules Engine (lista de `Action`). Una regla local nunca
-  desbloquea la cerradura: esas acciones se descartan (ADR 0003).
-- `send(actuator, action, params, explicit=True)`: orden explicita (demo, nube).
+- `execute(actions)`: entrada del Rules Engine (lista de `Action`). Registra las ordenes y las
+  envia por el despachador (`edge/actuation/dispatcher.py`): la peticion de la ESP32 que disparo
+  la regla no espera. Una regla local nunca desbloquea la cerradura: esas acciones se descartan
+  (ADR 0003).
+- `send(actuator, action, params)`: orden explicita (demo, nube), sincrona; puede desbloquear.
 - `desired_state()`: ultimo estado deseado por actuador; base de la reconciliacion por heartbeat (#6).
 - `node_ip(node)`: IP vigente del nodo segun el ultimo heartbeat.
 
@@ -14,6 +16,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from edge.actuation import catalog
+from edge.actuation.dispatcher import SyncDispatcher
 from edge.shared.clock import iso_utc
 from edge.shared.logging import get_logger
 from edge.shared.models import CommandRow, DesiredStateRow, NodeRow
@@ -29,8 +32,18 @@ class CommandResult:
     node: str
     actuator: str
     action: str
-    status: str            # APPLIED | FAILED
+    status: str            # APPLIED | FAILED | PENDING (aun en el despachador)
     simulated: bool = False
+
+
+@dataclass(frozen=True)
+class _Order:
+    """Orden registrada (PENDING) a la espera de su envio."""
+    command_id: str
+    node: str
+    actuator: str
+    action: str
+    params: dict
 
 
 @dataclass(frozen=True)
@@ -43,29 +56,40 @@ class DesiredState:
 
 
 class LocalSafetyController:
-    def __init__(self, db, esp32, clock, settings=None):
+    def __init__(self, db, esp32, clock, settings=None, dispatcher=None):
         self.db = db
         self.esp32 = esp32
         self.clock = clock
         self.settings = settings
+        self.dispatcher = dispatcher or SyncDispatcher()
 
     # ---- entrada del Rules Engine ----
 
     def execute(self, actions: list) -> list[CommandResult]:
+        """Registra las ordenes de una regla (PENDING) y las entrega al despachador.
+
+        Se registran en el hilo que llama, antes de que este persista o publique nada
+        ("primero se acciona"); el envio HTTP lo hace el despachador, asi la respuesta a la
+        ESP32 que disparo la regla no espera. Con un despachador asincrono el resultado
+        devuelto queda PENDING.
+        """
         results = []
         for item in actions:
             if item.action == "unlock":
                 log.warning("Regla local intento desbloquear %s: descartado (ADR 0003)", item.actuator)
                 continue
-            results.append(self.send(item.actuator, item.action, dict(item.params)))
+            results.append(self._dispatch(self._register(item.actuator, item.action,
+                                                         dict(item.params))))
         return results
 
     # ---- envio ----
 
     def send(self, actuator: str, action: str, params: dict | None = None) -> CommandResult:
-        """Envia una orden y la registra. Las llamadas de reglas pasan por `execute`;
-        `send` directo es para ordenes explicitas (demo, nube) y puede desbloquear."""
-        params = dict(params or {})
+        """Orden explicita (demo, nube): se envia en el hilo que llama y devuelve el resultado
+        final. Puede desbloquear; las ordenes de reglas pasan por `execute`."""
+        return self._complete(self._register(actuator, action, dict(params or {})))
+
+    def _register(self, actuator: str, action: str, params: dict) -> _Order:
         catalog.validate(actuator, action, params)
         params = self._lock_params(actuator, action, params)
         node = catalog.ACTUATOR_NODES[actuator]
@@ -79,10 +103,18 @@ class LocalSafetyController:
             session.add(CommandRow(command_id=command_id, node=node, actuator=actuator,
                                    action=action, params_json=json.dumps(params),
                                    status="PENDING", simulated=False, created_at=now))
-            row = session.get(NodeRow, node)
-            ip = row.ip if row else None
+        return _Order(command_id, node, actuator, action, params)
 
-        status, simulated = self._deliver(ip, command_id, actuator, action, params)
+    def _dispatch(self, order: "_Order") -> CommandResult:
+        result = self.dispatcher.submit(lambda: self._complete(order))
+        return result if result is not None else CommandResult(
+            order.command_id, order.node, order.actuator, order.action, "PENDING")
+
+    def _complete(self, order: "_Order") -> CommandResult:
+        """Entrega la orden a su nodo (con reintentos) y registra el acuse y el deseado."""
+        command_id, node, actuator, action, params = (
+            order.command_id, order.node, order.actuator, order.action, order.params)
+        status, simulated = self._deliver(self.node_ip(node), command_id, actuator, action, params)
 
         acked = iso_utc(self.clock.now_utc())
         with self.db.session() as session:
@@ -145,7 +177,8 @@ class LocalSafetyController:
                 continue
             log.info("Reconciliando %s: deseado %s %s, reportado %s", actuator, desired.action,
                      desired.params or "", reported.get(actuator, "sin dato"))
-            results.append(self.send(actuator, desired.action, dict(desired.params)))
+            results.append(self._dispatch(self._register(actuator, desired.action,
+                                                         dict(desired.params))))
         return results
 
     def _last_status(self, command_id):

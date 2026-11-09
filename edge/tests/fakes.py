@@ -99,3 +99,20 @@ class FakeMqttPublisher:
 
 class FakeVision(MockPersonDetector):
     """Vision falsa: el detector mock (las personas se inyectan por /simulate/security/person)."""
+
+
+class ManualDispatcher:
+    """Despachador de ordenes que no envia nada hasta `run_pending()`: simula el hilo trabajador
+    en produccion (la respuesta HTTP a la ESP32 no espera la orden)."""
+
+    def __init__(self):
+        self.queue = []
+
+    def submit(self, job):
+        self.queue.append(job)
+        return None
+
+    def run_pending(self):
+        jobs, self.queue = self.queue, []
+        for job in jobs:
+            job()
