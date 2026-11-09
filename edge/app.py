@@ -5,6 +5,7 @@ import threading
 from flask import Flask
 
 from edge.actuation.local_safety_controller import LocalSafetyController
+from edge.communication.events import publish_events
 from edge.communication.iot_client import IoTCommunicationClient
 from edge.config import thresholds as thresholds_config
 from edge.config.devices import load_devices
@@ -16,6 +17,7 @@ from edge.shared.clock import SystemClock
 from edge.shared.db import Database
 from edge.shared.logging import configure_logging, get_logger
 from edge.shared.retention import purge
+from edge.humidity import rules as humidity_rules
 from edge.temperature import rules as temperature_rules
 
 log = get_logger("app")
@@ -23,7 +25,7 @@ log = get_logger("app")
 
 def default_modules() -> list:
     """Registro de modulos de reglas. Un subsistema nuevo se agrega aqui."""
-    return [temperature_rules.MODULE]
+    return [temperature_rules.MODULE, humidity_rules.MODULE]
 
 
 class Edge:
@@ -52,6 +54,7 @@ class Edge:
         """Entrada periodica: avanza las reglas dependientes del tiempo y envia el outbox."""
         with self.db.session() as session:
             evaluations = self.rules.tick(session)
+            publish_events(session, evaluations, self.devices, self.settings.space_id, self.clock)
         for evaluation in evaluations:  # el controlador hace I/O: fuera de la transaccion
             self.controller.execute(evaluation.actions)
         self.iot_client.flush()

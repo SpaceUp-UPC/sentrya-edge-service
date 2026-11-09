@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from edge.communication import outbox
+from edge.communication.events import publish_events
 from edge.shared.clock import iso_utc
 from edge.shared.logging import get_logger
 from edge.shared.models import ReadingRow
@@ -27,18 +28,25 @@ class SensorManager:
         reading_id = str(uuid.uuid4())
         with self.db.session() as session:
             evaluations = self.rules.handle_reading(
-                session, device.key, reading.metric_type, reading.value)
+                session, device.key, reading.metric_type, reading.value,
+                {"error": True} if reading.error else None)
             local_state = evaluations[0].state["state"] if evaluations else None
-            session.add(ReadingRow(
-                id=reading_id, device_key=device.key, metric_type=reading.metric_type,
-                value=reading.value, unit=reading.unit, measured_at=reading.measured_at,
-                local_state=local_state))
-            payload = {"deviceId": device.device_id, "metricType": reading.metric_type,
-                       "value": reading.value, "unit": reading.unit, "readingId": reading_id,
-                       "measuredAt": reading.measured_at, "localState": local_state}
-            outbox.enqueue(session, reading_id,
-                           f"sentrya/{self.space_id}/{device.device_id}/readings",
-                           payload, iso_utc(self.clock.now_utc()))
+            publish_events(session, evaluations, self.devices, self.space_id, self.clock)
+            # Lectura con error (sin valor) no se guarda; si el modulo publica por su cuenta
+            # (humedad: telemetria), tampoco se encola cada lectura.
+            if not reading.error:
+                session.add(ReadingRow(
+                    id=reading_id, device_key=device.key, metric_type=reading.metric_type,
+                    value=reading.value, unit=reading.unit, measured_at=reading.measured_at,
+                    local_state=local_state))
+                if all(e.publish_reading for e in evaluations):
+                    payload = {"deviceId": device.device_id, "metricType": reading.metric_type,
+                               "value": reading.value, "unit": reading.unit,
+                               "readingId": reading_id, "measuredAt": reading.measured_at,
+                               "localState": local_state}
+                    outbox.enqueue(session, reading_id,
+                                   f"sentrya/{self.space_id}/{device.device_id}/readings",
+                                   payload, iso_utc(self.clock.now_utc()))
         # El controlador hace I/O de red: se acciona fuera de la transaccion (no bloquea la base).
         for evaluation in evaluations:
             self.controller.execute(evaluation.actions)

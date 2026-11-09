@@ -16,6 +16,11 @@ DEVICES_YAML = """
   deviceId: "dev-temp-1"
   metricType: temperature
   unit: C
+- key: humidity
+  node: node-2
+  deviceId: "dev-hum-1"
+  metricType: humidity
+  unit: "%"
 """
 
 

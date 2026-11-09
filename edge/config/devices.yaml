@@ -5,3 +5,9 @@
   deviceId: "REEMPLAZAR-ID-TEMPERATURA"
   metricType: temperature
   unit: C
+
+- key: humidity
+  node: node-2
+  deviceId: "REEMPLAZAR-ID-HUMEDAD"
+  metricType: humidity
+  unit: "%"

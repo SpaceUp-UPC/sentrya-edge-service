@@ -51,6 +51,7 @@ class Evaluation:
     state: dict
     actions: list
     events: list
+    publish_reading: bool = True  # False: el modulo publica por su cuenta (p. ej. humedad)
 
 
 class RulesEngine:
@@ -64,10 +65,12 @@ class RulesEngine:
         state = state if state is not None else module.initial_state()
         new_state, actions, events = module.evaluate(rule_input, state, self.clock)
         state_store.save_state(session, module.name, new_state, iso_utc(self.clock.now_utc()))
-        return Evaluation(module.name, new_state, list(actions), list(events))
+        return Evaluation(module.name, new_state, list(actions), list(events),
+                          getattr(module, "publish_readings", True))
 
-    def handle_reading(self, session, device_key, metric_type, value) -> list[Evaluation]:
-        rule_input = RuleInput("reading", self.thresholds, device_key, metric_type, value)
+    def handle_reading(self, session, device_key, metric_type, value, extra=None) -> list[Evaluation]:
+        rule_input = RuleInput("reading", self.thresholds, device_key, metric_type, value,
+                               extra or {})
         return [self._run(session, m, rule_input)
                 for m in self.modules.values() if metric_type in m.metric_types]
 
@@ -75,10 +78,23 @@ class RulesEngine:
         rule_input = RuleInput("tick", self.thresholds)
         return [self._run(session, m, rule_input) for m in self.modules.values()]
 
+    def set_mode(self, session, device_key, mode) -> bool:
+        """Cambia el modo AUTO/MANUAL del modulo que lo soporta para ese dispositivo."""
+        for module in self.modules.values():
+            if getattr(module, "mode_device_key", None) == device_key:
+                state, _ = state_store.load_state(session, module.name)
+                state = module.set_mode(state if state is not None else module.initial_state(), mode)
+                state_store.save_state(session, module.name, state, iso_utc(self.clock.now_utc()))
+                return True
+        return False
+
     def snapshot(self, session) -> dict:
         """Estado actual de cada modulo para /status."""
         out = {}
         for name, module in self.modules.items():
             state, updated_at = state_store.load_state(session, name)
-            out[name] = {"state": (state or module.initial_state())["state"], "updatedAt": updated_at}
+            current = state or module.initial_state()
+            out[name] = {"state": current["state"], "updatedAt": updated_at}
+            if "mode" in current:
+                out[name]["mode"] = current["mode"]
         return out
