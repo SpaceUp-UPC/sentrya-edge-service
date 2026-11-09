@@ -29,6 +29,10 @@ Dudas que no se resuelven en este repo. Mientras sigan abiertas, el código usa 
 - [ ] Umbrales de humedad del perfil `demo` según la humedad de la sala.
 - [ ] Qué relés, MOSFET y fuentes estarán disponibles el día de la demo.
 
+## Humedad (#7)
+
+- [ ] Equipo ESP32: error del DHT22 se reporta como `POST /api/v1/readings` con `{ "node", "deviceKey": "humidity", "metricType": "humidity", "error": "dht22" }` (sin `value` ni `unit`). Propuesta del edge; confirmar.
+- [ ] Equipo ESP32: confirmar `node-2` / `deviceKey: humidity` y que el humidificador responde a `humidifier` on/off.
 ## Seguridad (ticket #8)
 
 - [ ] Equipo ESP32: confirmar que el SA92 llega como un POST por disparo a `/api/v1/security/sound` (el edge usa la hora de llegada, no `triggeredAt`).
