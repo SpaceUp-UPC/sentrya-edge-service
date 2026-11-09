@@ -15,7 +15,7 @@ from edge.rules_engine import RulesEngine
 from edge.sensors import api
 from edge.sensors.sensor_manager import SensorManager
 from edge.security import rules as security_rules
-from edge.security.person_detection import MockPersonDetector
+from edge.security.camera import CameraThread, build_vision
 from edge.security.service import SecurityService
 from edge.shared.clock import SystemClock
 from edge.shared.db import Database
@@ -57,6 +57,10 @@ class Edge:
         self.cloud_inbox = CloudInbox(self)
         if hasattr(publisher, "subscribe"):
             self.cloud_inbox.subscribe(publisher)
+
+        # Hilo de camara solo con vision real (la que lee cuadros); el mock no lo necesita.
+        self.camera_thread = (CameraThread(vision, self.security, clock, settings.camera_fps)
+                              if hasattr(vision, "poll") else None)
         self._stop = threading.Event()
         self._thread = None
 
@@ -76,7 +80,7 @@ class Edge:
         self.iot_client.flush()
 
     def start_background(self, interval: float = 1.0) -> None:
-        """Hilo unico de tick (reglas + outbox). Llamar una sola vez."""
+        """Hilo unico de tick (reglas + outbox) y, con vision real, el de camara. Una sola vez."""
         def loop():
             while not self._stop.wait(interval):
                 try:
@@ -85,6 +89,8 @@ class Edge:
                     log.exception("Error en el tick")
         self._thread = threading.Thread(target=loop, name="edge-tick", daemon=True)
         self._thread.start()
+        if self.camera_thread is not None:
+            self.camera_thread.start(self._stop)
 
     def stop(self) -> None:
         self._stop.set()
@@ -104,7 +110,7 @@ def create_app(settings, *, clock, esp32, publisher, vision, db=None, modules=No
 
 
 def build_default_app() -> Flask:
-    """App de produccion: reloj, ESP32, MQTT y vision reales (vision mock por defecto)."""
+    """App de produccion: reloj, ESP32 y MQTT reales; vision segun PERSON_DETECTOR (mock por defecto)."""
     from dotenv import load_dotenv
     from edge.actuation.esp32_client import RequestsEsp32Client
     from edge.communication.mqtt_publisher import PahoPublisher
@@ -116,7 +122,7 @@ def build_default_app() -> Flask:
                               settings.mqtt_password, settings.mqtt_tls)
     publisher.start()
     return create_app(settings, clock=SystemClock(), esp32=RequestsEsp32Client(),
-                      publisher=publisher, vision=MockPersonDetector(), start_background=True)
+                      publisher=publisher, vision=build_vision(settings), start_background=True)
 
 
 def main() -> None:

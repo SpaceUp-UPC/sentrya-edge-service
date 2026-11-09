@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, jsonify, request
 from edge.actuation import nodes
 from edge.actuation.commands import run_command
 from edge.communication import outbox
+from edge.security.camera import vision_status
 from edge.sensors.normalizers import ValidationError
 
 bp = Blueprint("api", __name__, url_prefix="/api/v1")
@@ -99,6 +100,8 @@ def get_status():
         pending = outbox.pending_count(session)
         node_view = nodes.nodes_view(session)
         actuator_view = nodes.actuators_view(session)
+    if "security" in subsystems:  # camara y modelos: degradado si no estan disponibles
+        subsystems["security"].update(vision_status(edge.vision))
     return jsonify({
         "profile": edge.profile,
         "thresholds": edge.rules.thresholds,
