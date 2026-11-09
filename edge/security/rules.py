@@ -35,10 +35,37 @@ ALARM = "ALARM"
 class SecurityRules:
     name = NAME
     metric_types = ()  # no consume lecturas: recibe entradas "security", "validation", "tick"
+    # Incluye los del Person Detection Service, que lee la misma seccion del perfil.
+    threshold_keys = ("correlation_window_seconds", "validation_window_seconds",
+                      "siren_max_seconds", "unknown_person_cooldown_seconds",
+                      "person_confidence", "face_match_confidence")
 
     def initial_state(self) -> dict:
         return {"state": MONITORING, "event_id": None, "opened_at": None,
                 "consumed_person_at": None, "consumed_sound_at": None}
+
+    def reason(self, input, old_state, new_state):
+        """Motivo legible de la transicion (y de sus ordenes) para el log de la demo."""
+        cfg = input.thresholds[NAME]
+        old, new = old_state.get("state"), new_state.get("state")
+        if input.kind == "security":
+            return ("persona desconocida y sonido sospechoso a <= "
+                    f"{cfg['correlation_window_seconds']} s")
+        if input.kind == "validation":
+            return {"confirm": "el usuario confirmo la intrusion",
+                    "reject": "el usuario rechazo la intrusion"}.get(input.extra.get("decision"))
+        if input.kind == "restart":
+            return "reinicio del edge con la alarma activa"
+        if input.kind == "tick" and old == INTRUSION and new != INTRUSION:
+            return (f"vencio la ventana de validacion ({cfg['validation_window_seconds']} s) "
+                    "sin respuesta")
+        if input.kind == "tick" and old == ALARM:
+            return f"la sirena cumplio su duracion maxima ({cfg['siren_max_seconds']} s)"
+        return None
+
+    def reset_actions(self, thresholds) -> list:
+        """Demo: sirena apagada. La cerradura no se toca (ADR 0003)."""
+        return [Action("siren", "off")]
 
     def evaluate(self, input, state, clock):
         state = dict(state)

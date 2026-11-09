@@ -21,7 +21,8 @@ log = get_logger("security")
 
 
 class SecurityService:
-    def __init__(self, db, clock, rules, controller, iot_client, devices, detector, settings):
+    def __init__(self, db, clock, rules, controller, iot_client, devices, detector, settings,
+                 lock=None):
         self.db = db
         self.clock = clock
         self.rules = rules
@@ -33,11 +34,11 @@ class SecurityService:
         self.sound = SoundAnalysisService(clock, settings.sound_triggers_required,
                                           settings.sound_window_seconds)
         self.person = PersonDetectionService(detector, clock, rules.thresholds)
-        self._lock = threading.RLock()
+        self._lock = lock or threading.RLock()
 
     @property
     def lock(self):
-        """Serializa las entradas de seguridad con el tick (ventana y sirena)."""
+        """El lock del edge: serializa las entradas de seguridad con el tick y las lecturas."""
         return self._lock
 
     # ---- entradas ----
@@ -51,20 +52,23 @@ class SecurityService:
             return suspicious
 
     def process_frame(self) -> str | None:
-        """Un cuadro de la camara (lo invoca el hilo de vision o la simulacion)."""
+        """Un cuadro de la camara (lo invoca el hilo de vision o la simulacion).
+
+        La inferencia (DNN) corre fuera del lock del edge; solo la entrega a las reglas lo toma.
+        """
+        observations = self.detector.detect()
         with self._lock:
-            outcome = self.person.process_frame()
+            outcome = self.person.observe(observations)
             if outcome == "appeared":
                 self._evaluate()
             return outcome
 
     def simulate_person(self, known: bool) -> str:
         """Inyecta una persona en el detector mock: aparece en un cuadro y se va en el siguiente."""
-        with self._lock:
-            self.detector.inject(known)
-            outcome = self.process_frame()
-            self.process_frame()
-            return outcome or "none"
+        self.detector.inject(known)
+        outcome = self.process_frame()
+        self.process_frame()
+        return outcome or "none"
 
     def validate(self, decision: str, event_id: str | None = None) -> dict | None:
         """Respuesta del usuario (demo o MQTT). None si no hay una ventana abierta que responda."""
@@ -75,7 +79,7 @@ class SecurityService:
                     return None
                 evaluation = self.rules.handle_input(
                     session, SECURITY, "validation", {"decision": decision, "event_id": open_id})
-            self.controller.execute(evaluation.actions)           # primero se acciona
+            self.controller.actuate(evaluation)  # primero se acciona
             with self.db.session() as session:
                 if decision == "reject":
                     self._close(session, open_id, "rejected")
@@ -111,7 +115,7 @@ class SecurityService:
         with self._lock:
             with self.db.session() as session:
                 evaluation = self.rules.handle_input(session, SECURITY, "restart", {})
-            self.controller.execute(evaluation.actions)           # primero se acciona
+            self.controller.actuate(evaluation)  # primero se acciona
             with self.db.session() as session:
                 rows = session.query(SecurityEventRow).filter(
                     SecurityEventRow.closed_at.is_(None)).all()
@@ -134,12 +138,12 @@ class SecurityService:
     # ---- correlacion y reaccion ----
 
     def _evaluate(self) -> None:
-        extra = {"last_unknown_person_at": self.person.last_unknown_person_at,
-                 "last_suspicious_sound_at": self.sound.last_suspicious_sound_at,
-                 "event_id": str(uuid.uuid4())}
+        correlation = {"last_unknown_person_at": self.person.last_unknown_person_at,
+                       "last_suspicious_sound_at": self.sound.last_suspicious_sound_at,
+                       "event_id": str(uuid.uuid4())}
         with self.db.session() as session:
-            evaluation = self.rules.handle_input(session, "security", "security", extra)
-        self.controller.execute(evaluation.actions)           # 1. primero se acciona
+            evaluation = self.rules.handle_input(session, SECURITY, "security", correlation)
+        self.controller.actuate(evaluation)  # 1. primero se acciona
         for event in evaluation.events:
             if event.metric_type == "intrusion":
                 self._record_intrusion(event.data["eventId"], evaluation.state["state"])

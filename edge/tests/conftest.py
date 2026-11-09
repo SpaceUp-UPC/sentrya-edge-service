@@ -79,8 +79,9 @@ def make_harness(tmp_path):
     shared = {"clock": FakeClock(), "esp32": FakeEsp32Client(),
               "mqtt": FakeMqttPublisher(), "vision": FakeVision()}
 
-    def build(_profiles_dir=None, _vision=None, **env):
-        """`_vision` reemplaza la vision falsa compartida (p. ej. una CameraVision con fuente falsa)."""
+    def build(_profiles_dir=None, _vision=None, _dispatcher=None, **env):
+        """`_vision` reemplaza la vision falsa compartida (p. ej. una CameraVision con fuente falsa);
+        `_dispatcher`, el despachador sincrono de ordenes (p. ej. un ManualDispatcher)."""
         values = {"SPACE_ID": "7", "THRESHOLD_PROFILE": "demo"}
         values.update(env)
         settings = Settings.from_env(
@@ -89,7 +90,8 @@ def make_harness(tmp_path):
         db = Database(settings.db_url)
         vision = _vision if _vision is not None else shared["vision"]
         app = create_app(settings, clock=shared["clock"], esp32=shared["esp32"],
-                         publisher=shared["mqtt"], vision=vision, db=db)
+                         publisher=shared["mqtt"], vision=vision, db=db,
+                         dispatcher=_dispatcher)
         return Harness(app, app.test_client(), shared["clock"], shared["esp32"],
                        shared["mqtt"], vision, db, settings)
 

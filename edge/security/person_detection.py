@@ -72,7 +72,11 @@ class PersonDetectionService:
 
     def process_frame(self) -> str | None:
         """Procesa un cuadro. Devuelve 'appeared', 'cooldown' o None (sin cambio de interes)."""
-        unknown = any(self.is_unknown(o) for o in self.detector.detect())
+        return self.observe(self.detector.detect())
+
+    def observe(self, observations) -> str | None:
+        """Interpreta las personas de un cuadro ya inferido (`detector.detect()`)."""
+        unknown = any(self.is_unknown(o) for o in observations)
         if not unknown:
             self._unknown_present = False
             return None

@@ -216,3 +216,79 @@ def test_camera_recovers_from_degraded(real):
     h.camera.step()
     security = status(h)["subsystems"]["security"]
     assert (security["degraded"], security["camera"]) == (False, "OK")
+
+
+class BlockingPeopleDetector:
+    """Inferencia lenta: detect() se queda esperando hasta `release`."""
+
+    def __init__(self):
+        import threading
+        self.entered, self.release = threading.Event(), threading.Event()
+
+    def detect(self, frame):
+        self.entered.set()
+        self.release.wait(5)
+        return []
+
+
+def test_inference_runs_outside_the_edge_lock(make_harness):
+    import threading
+    people = BlockingPeopleDetector()
+    h = make_harness(_vision=CameraVision(FakeFrameSource(), people, FakeFaceRecognizer(),
+                                          encode_png=encode))
+    edge = h.app.extensions["edge"]
+    worker = threading.Thread(target=edge.camera_thread.step)
+    worker.start()
+    try:
+        assert people.entered.wait(2)
+        assert edge.lock.acquire(timeout=1)     # una lectura no espera a la inferencia
+        edge.lock.release()
+    finally:
+        people.release.set()
+        worker.join(5)
+
+
+# ---- reconocedor facial simulado (PERSON_DETECTOR=real, FACE_RECOGNIZER=mock) ----
+
+def mock_faces_app(make_harness):
+    from edge.security.camera import MockFaceRecognizer
+    source = FakeFrameSource(["persona"])
+    vision = CameraVision(source, FakePeopleDetector({"persona": [Detection(0.9, (0, 0, 40, 90))]}),
+                          MockFaceRecognizer(), encode_png=encode)
+    h = make_harness(_vision=vision)
+    h.heartbeat("node-1")
+    return h
+
+
+def faces(h, known):
+    return h.client.post("/api/v1/simulate/security/faces", json={"known": known})
+
+
+def test_mock_face_recognizer_treats_camera_people_as_unknown_by_default(make_harness):
+    h = mock_faces_app(make_harness)
+    h.app.extensions["edge"].camera_thread.step()
+    sound(h)
+    h.tick()
+    assert len(intrusions(h)) == 1
+
+
+def test_simulate_faces_marks_the_people_on_camera_as_known(make_harness):
+    h = mock_faces_app(make_harness)
+    assert faces(h, True).get_json() == {"known": True}
+    h.app.extensions["edge"].camera_thread.step()
+    sound(h)
+    h.tick()
+    assert not intrusions(h) and not h.esp32.sent
+
+
+def test_simulate_faces_needs_the_mock_recognizer(harness):
+    assert faces(harness, True).status_code == 409
+    assert faces(harness, "si").status_code == 400
+
+
+def test_real_detector_with_mock_recognizer_builds_the_mock_recognizer(tmp_path):
+    from edge.config.settings import Settings
+    from edge.security.camera import MockFaceRecognizer, build_vision
+    vision = build_vision(Settings.from_env({"PERSON_DETECTOR": "real", "FACE_RECOGNIZER": "mock",
+                                             "PERSON_MODEL_PATH": str(tmp_path / "x.onnx")}))
+    assert isinstance(vision.faces, MockFaceRecognizer)

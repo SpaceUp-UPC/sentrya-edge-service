@@ -3,6 +3,12 @@
 Cada modulo expone la misma interfaz pura:
     evaluate(input, state, clock) -> (new_state, actions[], events[])
 Agregar un subsistema es registrar un modulo; el nucleo no cambia.
+
+Ganchos opcionales de un modulo (para los logs de la demo):
+    describe(state) -> str                          estado tal como se loguea (por defecto
+                                                    state["state"])
+    reason(input, old_state, new_state) -> str|None motivo legible de la transicion y de las
+                                                    ordenes (por defecto, la lectura)
 """
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
@@ -44,6 +50,7 @@ class Event:
 class RuleModule(Protocol):
     name: str
     metric_types: tuple
+    threshold_keys: tuple   # claves que exige en thresholds[name] ("a.b" = anidada)
     def initial_state(self) -> dict: ...
     def evaluate(self, input: RuleInput, state: dict, clock) -> tuple[dict, list, list]: ...
 
@@ -55,6 +62,22 @@ class Evaluation:
     actions: list
     events: list
     publish_reading: bool = True  # False: el modulo publica por su cuenta (p. ej. humedad)
+    reason: str = ""              # motivo legible: se loguea con la transicion y las ordenes
+
+
+def check_thresholds(modules, thresholds: dict) -> None:
+    """Al arrancar: el perfil debe traer todos los umbrales de cada modulo (no hay respaldo
+    en el codigo, AGENTS.md §6). Lanza ValueError con las claves que faltan."""
+    missing = []
+    for module in modules:
+        for key in getattr(module, "threshold_keys", ()):
+            node = thresholds.get(module.name) if isinstance(thresholds, dict) else None
+            for part in key.split("."):
+                node = node.get(part) if isinstance(node, dict) else None
+            if node is None:
+                missing.append(f"{module.name}.{key}")
+    if missing:
+        raise ValueError("El perfil de umbrales no define: " + ", ".join(missing))
 
 
 class RulesEngine:
@@ -62,33 +85,53 @@ class RulesEngine:
         self.modules = {m.name: m for m in modules}
         self.clock = clock
         self.thresholds = thresholds
+        check_thresholds(self.modules.values(), thresholds)
 
     def _run(self, session, module, rule_input) -> Evaluation:
         state, _ = state_store.load_state(session, module.name)
         state = state if state is not None else module.initial_state()
         new_state, actions, events = module.evaluate(rule_input, state, self.clock)
-        if new_state["state"] != state["state"]:
-            log.info("[%s] %s -> %s (motivo: %s)", module.name, state["state"],
-                     new_state["state"], self._reason(rule_input))
+        reason = self._reason(module, rule_input, state, new_state)
+        before, after = self._describe(module, state), self._describe(module, new_state)
+        if before != after:
+            log.info("[%s] %s -> %s (motivo: %s)", module.name, before, after, reason)
         state_store.save_state(session, module.name, new_state, iso_utc(self.clock.now_utc()))
         return Evaluation(module.name, new_state, list(actions), list(events),
-                          getattr(module, "publish_readings", True))
+                          getattr(module, "publish_readings", True), reason)
 
     @staticmethod
-    def _reason(rule_input) -> str:
+    def _describe(module, state) -> str:
+        describe = getattr(module, "describe", None)
+        return describe(state) if describe else state["state"]
+
+    @staticmethod
+    def _reason(module, rule_input, old_state, new_state) -> str:
+        custom = getattr(module, "reason", None)
+        text = custom(rule_input, old_state, new_state) if custom else None
+        if text:
+            return text
         if rule_input.kind == "reading":
             return f"lectura {rule_input.device_key}={rule_input.value}"
-        return f"entrada {rule_input.kind}"
+        return {"tick": "paso del tiempo"}.get(rule_input.kind, rule_input.kind)
 
-    def reset(self, session) -> None:
-        """Demo: todos los modulos vuelven a su estado inicial (modo AUTO incluido)."""
+    def reset(self, session) -> list[tuple[str, list]]:
+        """Demo: todos los modulos vuelven a su estado inicial, salvo el modo AUTO/MANUAL, que
+        se conserva. Devuelve, por modulo, las ordenes que dejan sus actuadores en ese estado
+        (`reset_actions(thresholds)` de cada modulo; nunca un unlock)."""
+        out = []
         for module in self.modules.values():
             state, _ = state_store.load_state(session, module.name)
             initial = module.initial_state()
+            if state is not None and "mode" in state and "mode" in initial:
+                initial["mode"] = state["mode"]
             if state is not None and state["state"] != initial["state"]:
                 log.info("[%s] %s -> %s (motivo: reinicio de demo)", module.name,
                          state["state"], initial["state"])
             state_store.save_state(session, module.name, initial, iso_utc(self.clock.now_utc()))
+            reset_actions = getattr(module, "reset_actions", None)
+            if reset_actions is not None:
+                out.append((module.name, list(reset_actions(self.thresholds))))
+        return out
 
     def handle_reading(self, session, device_key, metric_type, value, extra=None) -> list[Evaluation]:
         rule_input = RuleInput("reading", self.thresholds, device_key, metric_type, value,

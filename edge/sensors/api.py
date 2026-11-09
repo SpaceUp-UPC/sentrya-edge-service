@@ -42,8 +42,8 @@ def _unknown_node(error):
 @bp.post("/nodes/<node>/heartbeat")
 def post_heartbeat(node):
     edge = _edge()
-    extra = {d.node for d in edge.devices.values()}
-    nodes.record_heartbeat(edge.db, edge.clock, node, request.get_json(silent=True), extra)
+    device_nodes = {device.node for device in edge.devices.values()}
+    nodes.record_heartbeat(edge.db, edge.clock, node, request.get_json(silent=True), device_nodes)
     body = request.get_json(silent=True)
     edge.controller.reconcile(node, body.get("actuators") or {})
     return jsonify({"ok": True})
@@ -95,6 +95,21 @@ def post_simulate_person():
     if not hasattr(edge.vision, "inject"):
         return jsonify({"error": "el detector activo no es el mock"}), 409
     return jsonify({"known": body["known"], "event": edge.security.simulate_person(body["known"])})
+
+
+@bp.post("/simulate/security/faces")
+def post_simulate_faces():
+    """Con camara real y FACE_RECOGNIZER=mock: marca a las personas de la camara como
+    conocidas o desconocidas."""
+    edge = _edge()
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("known"), bool):
+        raise ValidationError("known (booleano) es obligatorio")
+    faces = getattr(edge.vision, "faces", None)
+    if not hasattr(faces, "set_known"):
+        return jsonify({"error": "el reconocedor facial activo no es el mock"}), 409
+    faces.set_known(body["known"])
+    return jsonify({"known": body["known"]})
 
 
 @bp.post("/simulate/readings")

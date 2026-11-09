@@ -11,7 +11,7 @@ class PahoPublisher:
         self._host = url.hostname or "localhost"
         self._port = url.port or (8883 if tls else 1883)
         self._client = client or mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        self._subscriptions = {}   # filtro -> handler(topic, payload_bytes)
+        self._subscriptions = {}   # filtro -> handler(topic, payload_bytes, retained)
         if username:
             self._client.username_pw_set(username, password)
         if tls:
@@ -27,7 +27,9 @@ class PahoPublisher:
 
     def _apply(self, topic_filter, handler, qos) -> None:
         self._client.message_callback_add(
-            topic_filter, lambda _client, _userdata, message: handler(message.topic, message.payload))
+            topic_filter,
+            lambda _client, _userdata, message: handler(message.topic, message.payload,
+                                                        bool(message.retain)))
         self._client.subscribe(topic_filter, qos=qos)
 
     def _on_connect(self, _client, _userdata, _flags, _reason_code, _properties=None) -> None:

@@ -1,10 +1,13 @@
 """Nube -> edge: commands, security/validation y config (AGENTS.md seccion 9).
 
-Los mensajes llegan en el hilo de paho. Cada uno se atiende bajo el lock de seguridad (el mismo
-del tick y de la validacion), asi nunca se cruza con una ventana abierta ni con el tick.
-Un mensaje mal formado se registra y se ignora: el hilo del cliente nunca se cae.
+Los mensajes llegan en el hilo de red de paho y ahi solo se encolan: nada de locks, HTTP a las
+ESP32 ni `wait_for_publish` en ese hilo (el PUBACK no se procesaria mientras esta ocupado y
+cada publicacion daria un falso fallo y un reenvio). El tick los atiende con `process_pending`;
+cada manejador toma el lock del edge donde lee-modifica-guarda estado.
+Un mensaje mal formado se registra y se ignora: ni el hilo de paho ni el tick se caen.
 """
 import json
+import queue
 
 from edge.actuation.commands import run_command
 from edge.config import thresholds as thresholds_config
@@ -20,6 +23,7 @@ ACTUATOR_ALIASES = {"humidity": "humidifier"}
 class CloudInbox:
     def __init__(self, edge):
         self.edge = edge
+        self._queue: queue.Queue = queue.Queue()
         prefix = f"sentrya/{edge.settings.space_id}"
         self.topics = {
             f"{prefix}/+/commands": self.on_command,
@@ -29,19 +33,33 @@ class CloudInbox:
 
     def subscribe(self, publisher) -> None:
         for topic_filter, handler in self.topics.items():
-            publisher.subscribe(topic_filter, self._guarded(handler))
+            publisher.subscribe(topic_filter, self._enqueuer(handler))
 
-    def _guarded(self, handler):
-        def callback(topic, payload):
+    def _enqueuer(self, handler):
+        def callback(topic, payload, retained=False):   # hilo de paho: solo encola
+            if retained and handler == self.on_config:
+                # El YAML manda en cada arranque (AGENTS.md §6): una config retenida que el
+                # broker reenvia al (re)conectar no lo pisa. Solo se aplica la config nueva.
+                log.info("Config retenida de la nube en %s: ignorada (manda el YAML)", topic)
+                return
+            self._queue.put((handler, topic, payload))
+        return callback
+
+    def process_pending(self) -> int:
+        """Atiende los mensajes encolados (desde el tick). Devuelve cuantos atendio."""
+        handled = 0
+        while True:
             try:
-                body = json.loads(payload)
-                with self.edge.security.lock:
-                    handler(topic, body)
+                handler, topic, payload = self._queue.get_nowait()
+            except queue.Empty:
+                return handled
+            handled += 1
+            try:
+                handler(topic, json.loads(payload))
             except (ValueError, ValidationError) as error:   # JSON o contenido invalido
                 log.warning("Mensaje de la nube ignorado en %s: %s", topic, error)
             except Exception:
                 log.exception("Error atendiendo el mensaje de la nube en %s", topic)
-        return callback
 
     def _resolve_actuator(self, segment: str) -> str:
         for device in self.edge.devices.values():   # el segmento es el deviceId de IoT
@@ -53,7 +71,8 @@ class CloudInbox:
         if not isinstance(body, dict) or not isinstance(body.get("action"), str):
             raise ValidationError("commands requiere un objeto con action")
         actuator = self._resolve_actuator(topic.split("/")[2])
-        result = run_command(self.edge, actuator, body["action"], body.get("params") or {})
+        result = run_command(self.edge, actuator, body["action"], body.get("params") or {},
+                             origin="nube")
         log.info("Orden de la nube %s -> %s %s: %s", body.get("commandId"), actuator,
                  body["action"], result)
 
@@ -67,6 +86,7 @@ class CloudInbox:
             log.info("Validacion de la nube sin ventana abierta para %s: ignorada", event_id)
 
     def on_config(self, topic, body) -> None:
-        thresholds_config.apply_cloud(self.edge.db, self.edge.rules.thresholds, body,
-                                      self.edge.clock)
+        with self.edge.lock:   # las reglas leen estos umbrales bajo el mismo lock
+            thresholds_config.apply_cloud(self.edge.db, self.edge.rules.thresholds, body,
+                                          self.edge.clock)
         log.info("Umbrales de la nube aplicados (vigentes hasta el proximo reinicio)")

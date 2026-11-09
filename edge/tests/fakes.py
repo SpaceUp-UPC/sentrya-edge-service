@@ -22,6 +22,10 @@ class FakeClock:
         self._mono += seconds
         self._utc += timedelta(seconds=seconds)
 
+    def jump_utc(self, seconds):
+        """Ajuste de la hora de pared (NTP, cambio manual): el reloj monotonico no se mueve."""
+        self._utc += timedelta(seconds=seconds)
+
 
 class FakeEsp32Client:
     """Registra las ordenes enviadas (`sent`, incluye reintentos) y simula fallos de la ESP32.
@@ -71,7 +75,7 @@ class FakeMqttPublisher:
     def __init__(self):
         self.messages = []  # lista de dicts {topic, payload (dict), qos}
         self.broker_up = True
-        self.subscriptions = {}  # filtro -> handler(topic, payload_bytes)
+        self.subscriptions = {}  # filtro -> handler(topic, payload_bytes, retained)
 
     @property
     def connected(self):
@@ -80,22 +84,47 @@ class FakeMqttPublisher:
     def subscribe(self, topic_filter, handler, qos=1):
         self.subscriptions[topic_filter] = handler
 
-    def deliver(self, topic, payload):
-        """Inyecta un mensaje entrante (dict/str/bytes) como lo haria el hilo de paho."""
+    def deliver(self, topic, payload, retain=False):
+        """Inyecta un mensaje entrante (dict/str/bytes) como lo haria el hilo de paho.
+
+        Como en paho, publicar desde el callback envia el mensaje pero el PUBACK no se procesa
+        mientras el hilo de red esta ocupado: `publish` devuelve False (falso fallo).
+        """
         if isinstance(payload, (dict, list)):
             payload = json.dumps(payload)
         if isinstance(payload, str):
             payload = payload.encode("utf-8")
-        for topic_filter, handler in list(self.subscriptions.items()):
-            if _topic_matches(topic_filter, topic):
-                handler(topic, payload)
+        self._in_network_thread = True
+        try:
+            for topic_filter, handler in list(self.subscriptions.items()):
+                if _topic_matches(topic_filter, topic):
+                    handler(topic, payload, retain)
+        finally:
+            self._in_network_thread = False
 
     def publish(self, topic, payload, qos=1):
         if not self.broker_up:
             return False
         self.messages.append({"topic": topic, "payload": json.loads(payload), "qos": qos})
-        return True
+        return not getattr(self, "_in_network_thread", False)
 
 
 class FakeVision(MockPersonDetector):
     """Vision falsa: el detector mock (las personas se inyectan por /simulate/security/person)."""
+
+
+class ManualDispatcher:
+    """Despachador de ordenes que no envia nada hasta `run_pending()`: simula el hilo trabajador
+    en produccion (la respuesta HTTP a la ESP32 no espera la orden)."""
+
+    def __init__(self):
+        self.queue = []
+
+    def submit(self, job):
+        self.queue.append(job)
+        return None
+
+    def run_pending(self):
+        jobs, self.queue = self.queue, []
+        for job in jobs:
+            job()

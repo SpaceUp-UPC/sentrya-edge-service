@@ -50,6 +50,21 @@ def test_reset_after_intrusion_and_critical_restores_initial_state_without_unloc
     assert all(actuator != "lock" for actuator, _, _ in sent)
 
 
+def test_reset_asks_node_3_for_the_normal_sampling_interval(h):
+    critical(h)
+    h.esp32.sent.clear()
+    reset(h)
+    sampling = [(ip, b["params"]) for ip, b in h.esp32.sent if b["actuator"] == "sampling"]
+    assert sampling == [("10.0.0.3", {"intervalSeconds": 30})]
+
+
+def test_reset_keeps_the_humidifier_mode(h):
+    h.command("humidifier", "mode", mode="manual")
+    reset(h)
+    assert status(h)["subsystems"]["humidity"]["mode"] == "manual"
+    assert ("humidifier", "off", {}) in orders(h)
+
+
 def test_reset_closes_the_open_window_and_does_not_escalate_later(h):
     person(h)
     sound(h)
@@ -115,6 +130,51 @@ def test_transitions_and_orders_are_logged_with_subsystem_before_after_and_reaso
     assert "[temperature]" in text and "NORMAL -> " in text and "CRITICAL" in text
     assert "lectura temperature=40" in text
     assert "Orden node-3 fan set" in text
+
+
+def log_lines(caplog, *needles):
+    return [r.getMessage() for r in caplog.records if all(n in r.getMessage() for n in needles)]
+
+
+def test_every_order_is_logged_with_its_subsystem_and_reason(h, caplog):
+    with caplog.at_level(logging.INFO, logger="edge"):
+        critical(h)
+        h.command("valve", "open")
+        reset(h)
+    assert log_lines(caplog, "Orden node-3 fan set", "[temperature]", "motivo: lectura temperature=40")
+    assert log_lines(caplog, "Orden node-3 valve open", "[demo]", "motivo: orden explicita")
+    assert log_lines(caplog, "Orden node-1 siren off", "[security]", "motivo: reinicio de demo")
+
+
+def test_reconciliation_orders_say_why(h, caplog):
+    h.command("valve", "open")
+    with caplog.at_level(logging.INFO, logger="edge"):
+        h.esp32.simulate_failed("valve")
+        h.command("valve", "close")
+        h.esp32.responses.clear()
+        h.heartbeat("node-3", actuators={"valve": "open"})
+    assert log_lines(caplog, "Orden node-3 valve close", "[reconciliacion]",
+                     "motivo: heartbeat de node-3 reporta open")
+
+
+def test_security_transitions_have_a_readable_reason(h, caplog):
+    with caplog.at_level(logging.INFO, logger="edge"):
+        person(h)
+        sound(h)
+        h.tick(31)
+    assert log_lines(caplog, "[security] MONITORING -> INTRUSION", "persona desconocida")
+    assert log_lines(caplog, "[security] INTRUSION -> ", "vencio la ventana de validacion")
+    assert log_lines(caplog, "Orden node-1 siren on", "[security]", "persona desconocida")
+    assert not log_lines(caplog, "entrada tick")
+
+
+def test_sensor_down_is_logged_as_a_transition(h, caplog):
+    h.client.post("/api/v1/readings", json={"node": "node-2", "deviceKey": "humidity",
+                                            "metricType": "humidity", "value": 50, "unit": "%"})
+    with caplog.at_level(logging.INFO, logger="edge"):
+        h.tick(31)
+    assert log_lines(caplog, "[humidity] NORMAL -> NORMAL (sensor caido)", "sin lecturas")
+    assert log_lines(caplog, "Orden node-2 humidifier off", "[humidity]", "sin lecturas")
 
 
 def test_status_reports_subsystems_camera_outbox_actuators_and_mqtt(h):

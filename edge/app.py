@@ -11,7 +11,7 @@ from edge.communication.iot_client import IoTCommunicationClient
 from edge.config import thresholds as thresholds_config
 from edge.config.devices import load_devices
 from edge.config.settings import Settings
-from edge.rules_engine import Action, RulesEngine
+from edge.rules_engine import RulesEngine
 from edge.sensors import api
 from edge.sensors.sensor_manager import SensorManager
 from edge.security import rules as security_rules
@@ -35,7 +35,7 @@ def default_modules() -> list:
 class Edge:
     """Contenedor de componentes; vive en app.extensions['edge']."""
 
-    def __init__(self, settings, clock, db, esp32, publisher, vision, modules):
+    def __init__(self, settings, clock, db, esp32, publisher, vision, modules, dispatcher=None):
         self.settings = settings
         self.clock = clock
         self.db = db
@@ -47,12 +47,16 @@ class Edge:
         thresholds = thresholds_config.apply_profile(db, settings.profiles_dir, self.profile, clock)
         self.devices = load_devices(settings.devices_path)
         self.rules = RulesEngine(modules, clock, thresholds)
-        self.controller = LocalSafetyController(db, esp32, clock, settings)
+        # Un solo lock para todo leer-modificar-guardar de subsystem_state (lecturas, tick,
+        # seguridad, modo, reset, nube). Nunca se tiene durante I/O con una ESP32: las ordenes
+        # de las reglas las envia el despachador.
+        self.lock = threading.RLock()
+        self.controller = LocalSafetyController(db, esp32, clock, settings, dispatcher)
         self.iot_client = IoTCommunicationClient(db, publisher)
         self.sensor_manager = SensorManager(db, clock, self.devices, self.rules,
-                                            self.controller, settings.space_id)
+                                            self.controller, settings.space_id, self.lock)
         self.security = SecurityService(db, clock, self.rules, self.controller, self.iot_client,
-                                       self.devices, vision, settings)
+                                       self.devices, vision, settings, self.lock)
         self.security.recover()  # reinicio con una ventana abierta: timeout y escalamiento
         self.cloud_inbox = CloudInbox(self)
         if hasattr(publisher, "subscribe"):
@@ -65,12 +69,14 @@ class Edge:
         self._thread = None
 
     def tick(self) -> None:
-        """Entrada periodica: avanza las reglas dependientes del tiempo y envia el outbox."""
-        with self.security.lock:  # no se cruza con una validacion o una intrusion en curso
+        """Entrada periodica: atiende los mensajes de la nube, avanza las reglas dependientes
+        del tiempo y envia el outbox."""
+        self.cloud_inbox.process_pending()
+        with self.lock:  # no se cruza con una lectura, una validacion o una intrusion en curso
             with self.db.session() as session:
                 evaluations = self.rules.tick(session)
             for evaluation in evaluations:  # el controlador hace I/O: fuera de la transaccion
-                self.controller.execute(evaluation.actions)   # primero se acciona
+                self.controller.actuate(evaluation)  # primero se acciona
             if any(e.events for e in evaluations):
                 with self.db.session() as session:
                     for evaluation in evaluations:
@@ -80,16 +86,18 @@ class Edge:
         self.iot_client.flush()
 
     def reset(self) -> list:
-        """Demo: subsistemas al estado inicial y sirena, buzzer, ventilador y humidificador
-        apagados, por las vias normales. Nunca desbloquea la cerradura."""
+        """Demo: subsistemas al estado inicial (el modo del humidificador se conserva) y
+        sirena, buzzer, ventilador y humidificador apagados y muestreo de NORMAL, por las vias
+        normales. Nunca toca la cerradura."""
         log.info("REINICIO DE DEMO: subsistemas a su estado inicial")
-        with self.security.lock:
+        with self.lock:
             with self.db.session() as session:
-                self.rules.reset(session)
+                orders = self.rules.reset(session)
             self.security.reset()
-            return self.controller.execute([
-                Action("siren", "off"), Action("buzzer", "off"),
-                Action("fan", "set", {"duty": 0}), Action("humidifier", "off")])
+            results = []
+            for subsystem, actions in orders:
+                results += self.controller.execute(actions, subsystem, "reinicio de demo")
+            return results
 
     def start_background(self, interval: float = 1.0) -> None:
         """Hilo unico de tick (reglas + outbox) y, con vision real, el de camara. Una sola vez."""
@@ -109,11 +117,13 @@ class Edge:
 
 
 def create_app(settings, *, clock, esp32, publisher, vision, db=None, modules=None,
-               start_background=False) -> Flask:
+               dispatcher=None, start_background=False) -> Flask:
+    """`dispatcher`: despachador de ordenes del LSC; sincrono por defecto (pruebas), con hilo
+    trabajador en produccion (`build_default_app`)."""
     db = db or Database(settings.db_url)
     app = Flask("edge")
     edge = Edge(settings, clock, db, esp32, publisher, vision,
-                modules if modules is not None else default_modules())
+                modules if modules is not None else default_modules(), dispatcher)
     app.extensions["edge"] = edge
     app.register_blueprint(api.bp)
     if start_background:
@@ -124,6 +134,7 @@ def create_app(settings, *, clock, esp32, publisher, vision, db=None, modules=No
 def build_default_app() -> Flask:
     """App de produccion: reloj, ESP32 y MQTT reales; vision segun PERSON_DETECTOR (mock por defecto)."""
     from dotenv import load_dotenv
+    from edge.actuation.dispatcher import ThreadDispatcher
     from edge.actuation.esp32_client import RequestsEsp32Client
     from edge.communication.mqtt_publisher import PahoPublisher
 
@@ -134,7 +145,8 @@ def build_default_app() -> Flask:
                               settings.mqtt_password, settings.mqtt_tls)
     publisher.start()
     return create_app(settings, clock=SystemClock(), esp32=RequestsEsp32Client(),
-                      publisher=publisher, vision=build_vision(settings), start_background=True)
+                      publisher=publisher, vision=build_vision(settings),
+                      dispatcher=ThreadDispatcher(), start_background=True)
 
 
 def main() -> None:
