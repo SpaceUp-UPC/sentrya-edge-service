@@ -20,6 +20,7 @@ from edge.shared.clock import SystemClock
 from edge.shared.db import Database
 from edge.shared.logging import configure_logging, get_logger
 from edge.shared.retention import purge
+from edge.humidity import rules as humidity_rules
 from edge.temperature import rules as temperature_rules
 
 log = get_logger("app")
@@ -27,7 +28,7 @@ log = get_logger("app")
 
 def default_modules() -> list:
     """Registro de modulos de reglas. Un subsistema nuevo se agrega aqui."""
-    return [temperature_rules.MODULE, security_rules.MODULE]
+    return [temperature_rules.MODULE, humidity_rules.MODULE, security_rules.MODULE]
 
 
 class Edge:
