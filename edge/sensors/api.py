@@ -97,6 +97,21 @@ def post_simulate_person():
     return jsonify({"known": body["known"], "event": edge.security.simulate_person(body["known"])})
 
 
+@bp.post("/simulate/security/faces")
+def post_simulate_faces():
+    """Con camara real y FACE_RECOGNIZER=mock: marca a las personas de la camara como
+    conocidas o desconocidas."""
+    edge = _edge()
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("known"), bool):
+        raise ValidationError("known (booleano) es obligatorio")
+    faces = getattr(edge.vision, "faces", None)
+    if not hasattr(faces, "set_known"):
+        return jsonify({"error": "el reconocedor facial activo no es el mock"}), 409
+    faces.set_known(body["known"])
+    return jsonify({"known": body["known"]})
+
+
 @bp.post("/simulate/readings")
 def post_simulate_readings():
     """Lecturas falsas por la misma via que una real. Un objeto o {"readings": [...]}."""

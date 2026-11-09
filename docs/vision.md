@@ -8,6 +8,11 @@ FACE_RECOGNIZER=real
 CAMERA_STREAM_URL=http://<ip-esp32cam>:81/stream
 ```
 
+Con `PERSON_DETECTOR=real` y `FACE_RECOGNIZER=mock` se usa la cámara y el detector de
+personas reales con un reconocedor facial simulado: toda persona de la cámara es desconocida
+hasta que se marque como conocida con `POST /api/v1/simulate/security/faces`
+`{"known": true}` (y de vuelta con `{"known": false}`). Requiere `ENABLE_SIMULATION=true`.
+
 Solo se usa OpenCV (`opencv-python-headless`, que trae `cv2.dnn`, `FaceDetectorYN` y
 `FaceRecognizerSF`) y numpy. No se usan `face_recognition` (dlib), `ultralytics` ni PyTorch.
 

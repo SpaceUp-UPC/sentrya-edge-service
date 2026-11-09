@@ -27,11 +27,26 @@ class Detection:
     box: tuple[int, int, int, int]    # x, y, ancho, alto en pixeles del cuadro
 
 
-class NoFaceRecognizer:
-    """Reconocedor simulado (FACE_RECOGNIZER=mock con camara real): nunca ve un rostro conocido."""
+class MockFaceRecognizer:
+    """Reconocedor simulado (FACE_RECOGNIZER=mock con camara real).
+
+    Por defecto toda persona de la camara es desconocida. `POST /simulate/security/faces`
+    con `{"known": true}` hace que las personas que ve la camara se reconozcan como conocidas
+    (p. ej. mientras pasa un residente en la demo) hasta volver a `{"known": false}`.
+    """
+
+    MATCH = 0.95   # similitud simulada de un rostro conocido (sobre cualquier corte razonable)
+
+    def __init__(self):
+        self.known = False
+
+    def set_known(self, known: bool) -> None:
+        self.known = bool(known)
+        log.info("Reconocedor simulado: las personas de la camara son %s",
+                 "conocidas" if self.known else "desconocidas")
 
     def match(self, frame, boxes):
-        return [None for _ in boxes]
+        return [self.MATCH if self.known else None for _ in boxes]
 
 
 class CameraVision:
@@ -128,13 +143,13 @@ def build_vision(settings):
         source = MjpegCameraSource(settings.camera_stream_url)
     except Exception as error:  # cv2 no instalado
         log.error("Vision real no disponible: %s", error)
-        return CameraVision(_NoCamera(), _NoPeople(), NoFaceRecognizer(), problem=str(error))
+        return CameraVision(_NoCamera(), _NoPeople(), MockFaceRecognizer(), problem=str(error))
     try:
         people = YoloxPersonDetector(settings.person_model_path)
     except Exception as error:
         log.error("No se pudo cargar el detector de personas: %s", error)
         people, problems = _NoPeople(), problems + [str(error)]
-    faces = NoFaceRecognizer()
+    faces = MockFaceRecognizer()
     if settings.face_recognizer == "real":
         try:
             from edge.security.opencv_vision import SFaceRecognizer
