@@ -19,3 +19,6 @@ data/
 
 # Firmware: credenciales Wi-Fi
 firmware/**/config.h
+
+# Broker desplegado: usuarios y contrasenas
+mosquitto/broker.env

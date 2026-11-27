@@ -46,7 +46,7 @@ Dudas que no se resuelven solo con este repo. Mientras sigan abiertas, el códig
 - [ ] Confirmar que umbral máximo 0 genera alerta con valor 1 ("lecturas evento", ADR 0001).
 - [ ] Confirmar que ignoran los campos extra (`readingId`, `measuredAt`, `localState`, `reason`, `eventId`, `evidenceRef`).
 - [ ] `evidenceRef` es una ruta local (`evidence/<eventId>.png`); la nube no puede descargar la foto. ¿Hace falta subirla o basta la referencia para la demo?
-- [ ] Autenticación de dispositivos en el broker (hoy Mosquitto sin usuario ni contraseña, solo para desarrollo). ¿Qué broker se usa en la demo: el de IoT Monitoring o el `docker compose` de este repo?
+- [ ] Autenticación de dispositivos en el broker. El repo trae `docker-compose.deploy.yml` (usuario y contraseña, sin TLS) para desplegarlo; `docker-compose.yml` sigue sin contraseña, solo para la laptop. ¿Qué broker se usa en la demo: el de IoT Monitoring o el `docker compose` de este repo?
 
 ### Nube → edge (todavía no lo implementan)
 
