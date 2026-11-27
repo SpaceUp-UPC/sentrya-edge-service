@@ -9,9 +9,9 @@ temperature:
   sampling_seconds: {normal: 30, warning: 5, critical: 1}
   sensor_min_interval_seconds: 1
 humidity:
-  on_below: 40        # CALIBRAR con la humedad de la sala
-  off_at: 55
-  high_above: 65      # CALIBRAR con la humedad de la sala
+  on_below: 80        # CALIBRAR con la humedad de la sala (cuarto de pruebas ~77 %)
+  off_at: 85
+  high_above: 90      # CALIBRAR con la humedad de la sala
   high_hysteresis: 3
   consecutive_readings: 3
   read_interval_seconds: 10
