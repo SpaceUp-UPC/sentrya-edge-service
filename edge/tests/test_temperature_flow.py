@@ -12,7 +12,7 @@ def test_critical_flow_commands_esp32_and_publishes_escalation_once(harness):
         assert h.post_reading(value=33.0).status_code < 300
     assert sent(h, "fan") == [("set", {"duty": 50}), ("set", {"duty": 100})]
     assert sent(h, "buzzer") == [("on", {})]
-    assert sent(h, "sampling") == [("set", {"intervalSeconds": 5}), ("set", {"intervalSeconds": 1})]
+    assert sent(h, "sampling") == [("set", {"intervalSeconds": 5}), ("set", {"intervalSeconds": 2})]  # CRITICAL pide 1 s; el DHT22 no baja de 2
     h.post_reading(value=34.0)
     h.tick()
     escalations = [m["payload"] for m in h.mqtt.messages if m["payload"]["metricType"] == "escalation"]

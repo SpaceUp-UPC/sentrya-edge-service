@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from edge.tests.conftest import CONFIG_DIR
+from edge.tests.conftest import CONFIG_DIR, TEST_PROFILES_DIR
 
 
 def status(h):
@@ -16,7 +16,7 @@ def test_thresholds_come_from_the_profile_named_in_env(make_harness):
     assert demo["thresholds"]["temperature"]["t1_warning"] == 28
 
 
-DEMO_YAML = (CONFIG_DIR / "profiles" / "demo.yaml").read_text(encoding="utf-8")
+DEMO_YAML = (TEST_PROFILES_DIR / "demo.yaml").read_text(encoding="utf-8")
 
 
 def write_demo(profiles, text):
@@ -35,7 +35,7 @@ def test_profile_yaml_wins_on_every_start(make_harness, tmp_path):
 
 @pytest.mark.parametrize("line, key", [
     ("  consecutive_readings: 3\n  rate_rise_enabled", "temperature.consecutive_readings"),
-    ("  sensor_min_interval_seconds: 1\n", "temperature.sensor_min_interval_seconds"),
+    ("  sensor_min_interval_seconds: 2\n", "temperature.sensor_min_interval_seconds"),
     ("  telemetry_seconds: 60\n", "humidity.telemetry_seconds"),
     ("  siren_max_seconds: 15\n", "security.siren_max_seconds"),
 ])
@@ -49,7 +49,9 @@ def test_startup_fails_clearly_when_the_profile_lacks_a_threshold(make_harness, 
 
 @pytest.mark.parametrize("profile", ["demo", "report"])
 def test_both_profiles_have_every_threshold(make_harness, profile):
-    assert status(make_harness(THRESHOLD_PROFILE=profile))["profile"] == profile
+    """Los perfiles reales (los que se calibran) siguen completos."""
+    harness = make_harness(_profiles_dir=CONFIG_DIR / "profiles", THRESHOLD_PROFILE=profile)
+    assert status(harness)["profile"] == profile
 
 
 def test_status_reports_temperature_state_and_survives_restart(make_harness):

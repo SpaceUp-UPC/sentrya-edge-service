@@ -292,3 +292,61 @@ def test_real_detector_with_mock_recognizer_builds_the_mock_recognizer(tmp_path)
     vision = build_vision(Settings.from_env({"PERSON_DETECTOR": "real", "FACE_RECOGNIZER": "mock",
                                              "PERSON_MODEL_PATH": str(tmp_path / "x.onnx")}))
     assert isinstance(vision.faces, MockFaceRecognizer)
+
+
+# ---- CAMERA_STREAM_URL=auto: la IP del heartbeat del Nodo 1 ----
+
+def test_auto_camera_url_follows_node1_heartbeat_ip():
+    from edge.config.settings import Settings
+    from edge.security.camera import camera_url
+    ips = {}
+    url = camera_url(Settings.from_env({"CAMERA_STREAM_URL": "auto"}), ips.get)
+    assert url() == ""                                   # sin heartbeat todavia
+    ips["node-1"] = "10.169.208.37"
+    assert url() == "http://10.169.208.37:81/stream"
+    ips["node-1"] = "192.168.1.6"                        # cambio de red
+    assert url() == "http://192.168.1.6:81/stream"
+
+
+def test_fixed_camera_url_is_kept():
+    from edge.config.settings import Settings
+    from edge.security.camera import camera_url
+    fixed = "http://10.0.0.5:81/stream"
+    assert camera_url(Settings.from_env({"CAMERA_STREAM_URL": fixed}), {}.get) == fixed
+
+
+def test_camera_source_reopens_when_the_url_changes(monkeypatch):
+    from edge.security import opencv_vision
+
+    class FakeCapture:
+        opened = []
+
+        def __init__(self, url):
+            self.url, self.released = url, False
+            FakeCapture.opened.append(self)
+
+        def isOpened(self):
+            return True
+
+        def set(self, *args):
+            pass
+
+        def read(self):
+            return True, f"cuadro de {self.url}"
+
+        def release(self):
+            self.released = True
+
+    class FakeCv2:
+        CAP_PROP_BUFFERSIZE = 38
+        VideoCapture = FakeCapture
+
+    monkeypatch.setattr(opencv_vision, "_cv2", lambda: FakeCv2)
+    current = {"url": "http://a:81/stream"}
+    source = opencv_vision.MjpegCameraSource(lambda: current["url"])
+    assert source.read() == "cuadro de http://a:81/stream"
+    current["url"] = "http://b:81/stream"
+    assert source.read() == "cuadro de http://b:81/stream"
+    assert FakeCapture.opened[0].released
+    current["url"] = ""
+    assert source.read() is None and FakeCapture.opened[1].released

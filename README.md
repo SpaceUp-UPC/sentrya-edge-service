@@ -60,7 +60,7 @@ Todo se configura en `.env`. Las variables están documentadas en `.env.example`
 | `SPACE_ID` | Parte del tópico MQTT |
 | `ENABLE_SIMULATION` | Habilita los endpoints `/simulate/*` para la demo |
 | `PERSON_DETECTOR` / `FACE_RECOGNIZER` | `mock` (por defecto) o `real` (OpenCV, ver [`docs/vision.md`](docs/vision.md)) |
-| `CAMERA_STREAM_URL` | Stream MJPEG de la ESP32‑CAM, solo con visión real |
+| `CAMERA_STREAM_URL` | Stream MJPEG de la ESP32‑CAM, solo con visión real. `auto`: `http://<IP del heartbeat del Nodo 1>:81/stream`, sigue a la cámara si cambia de red |
 
 Además:
 

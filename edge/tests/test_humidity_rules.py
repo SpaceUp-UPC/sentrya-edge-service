@@ -1,4 +1,6 @@
 """Humedad (#7): Seam 2 (evaluate puro) y Seam 1 (app por HTTP con fakes)."""
+import pytest
+
 from edge.humidity.rules import MODULE
 from edge.rules_engine import Action, RuleInput
 from edge.shared.models import OutboxRow
@@ -197,6 +199,16 @@ def post(h, value=None, error=False, advance=0):
     return r
 
 
+# demo.yaml se calibra con la humedad de la sala; las pruebas HTTP usan los umbrales fijos del
+# informe (report.yaml: encender < 40, apagar >= 50, alta > 60).
+REPORT = {"THRESHOLD_PROFILE": "report"}
+
+
+@pytest.fixture
+def harness(make_harness):
+    return make_harness(**REPORT)
+
+
 def humidifier_commands(h):
     return [b["action"] for _, b in h.esp32.sent if b["actuator"] == "humidifier"]
 
@@ -247,7 +259,7 @@ def test_http_dht22_error_and_silence_publish_device_error(harness):
 
 
 def test_http_manual_mode_via_demo_commands_and_survives_restart(make_harness):
-    h = make_harness()
+    h = make_harness(**REPORT)
     h.heartbeat("node-2")
     r = h.command("humidifier", "mode", mode="manual")
     assert r.status_code == 200 and r.get_json()["mode"] == "manual"
@@ -259,7 +271,7 @@ def test_http_manual_mode_via_demo_commands_and_survives_restart(make_harness):
         post(h, 70)
     assert humidifier_commands(h) == ["off"]
 
-    h2 = make_harness()                       # nueva app sobre la misma base
+    h2 = make_harness(**REPORT)               # nueva app sobre la misma base
     assert h2.client.get("/api/v1/status").get_json()["subsystems"]["humidity"]["mode"] == "manual"
     assert h2.command("humidifier", "mode", mode="auto").get_json()["mode"] == "auto"
 

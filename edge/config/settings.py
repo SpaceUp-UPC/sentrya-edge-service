@@ -17,6 +17,7 @@ class Settings:
     threshold_profile: str = "demo"
     flask_host: str = "0.0.0.0"
     flask_port: int = 5000
+    discovery_port: int = 5001  # broadcast UDP para que las ESP32 encuentren al edge (0 = apagado)
     mqtt_broker_url: str = "tcp://localhost:1883"
     mqtt_username: str = ""
     mqtt_password: str = ""
@@ -52,6 +53,7 @@ class Settings:
             threshold_profile=get("THRESHOLD_PROFILE", defaults.threshold_profile),
             flask_host=get("FLASK_HOST", defaults.flask_host),
             flask_port=int(get("FLASK_PORT", defaults.flask_port)),
+            discovery_port=int(get("DISCOVERY_PORT", defaults.discovery_port)),
             mqtt_broker_url=get("MQTT_BROKER_URL", defaults.mqtt_broker_url),
             mqtt_username=get("MQTT_USERNAME", ""),
             mqtt_password=get("MQTT_PASSWORD", ""),

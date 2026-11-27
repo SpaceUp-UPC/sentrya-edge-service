@@ -41,18 +41,33 @@ def encode_png(frame) -> bytes:
 
 
 class MjpegCameraSource:
-    """`read()` devuelve el siguiente cuadro BGR o None si la camara no responde (reabre sola)."""
+    """`read()` devuelve el siguiente cuadro BGR o None si la camara no responde (reabre sola).
 
-    def __init__(self, url: str):
-        self.url = url
+    `url` es fija o una funcion que la devuelve en cada lectura (CAMERA_STREAM_URL=auto: la IP
+    del ultimo heartbeat del Nodo 1). Si cambia, se cierra el stream viejo y se abre el nuevo.
+    """
+
+    def __init__(self, url):
+        self._url = url if callable(url) else (lambda: url)
         self._capture = None
+        self._opened_url = None
+
+    @property
+    def url(self) -> str:
+        return self._url() or ""
 
     def read(self):
         cv2 = _cv2()
-        if not self.url:
+        url = self.url
+        if self._capture is not None and url != self._opened_url:
+            log.info("La camara cambio de direccion: %s -> %s", self._opened_url, url or "(ninguna)")
+            self._capture.release()
+            self._capture = None
+        if not url:
             return None
         if self._capture is None:
-            capture = cv2.VideoCapture(self.url)
+            self._opened_url = url
+            capture = cv2.VideoCapture(url)
             if not capture.isOpened():
                 capture.release()
                 return None

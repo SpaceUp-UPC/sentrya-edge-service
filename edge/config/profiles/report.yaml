@@ -7,7 +7,7 @@ temperature:
   rate_rise_enabled: false
   rate_rise_c_per_min: 8
   sampling_seconds: {normal: 30, warning: 5, critical: 1}
-  sensor_min_interval_seconds: 1
+  sensor_min_interval_seconds: 2
 humidity:
   on_below: 40
   off_at: 50
