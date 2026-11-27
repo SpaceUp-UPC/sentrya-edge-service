@@ -83,6 +83,38 @@ Al arrancar, la consola muestra la retención aplicada y la conexión MQTT. Desd
 
 Para que las ESP32 alcancen al edge en la maqueta, abre el puerto: `sudo ufw allow 5000/tcp`.
 
+## Desplegar el broker en un servidor
+
+`docker-compose.yml` es para tu laptop: **acepta conexiones sin contraseña**. En un servidor accesible desde internet cualquiera podría publicar en los tópicos (por ejemplo, una orden de desbloqueo). Para desplegarlo, usa la versión con usuario y contraseña:
+
+```
+docker-compose.deploy.yml        Mosquitto con usuario y contraseña
+mosquitto/mosquitto.deploy.conf  sin acceso anónimo
+mosquitto/broker.env.example     plantilla de usuarios (la copia broker.env no va a git)
+```
+
+En el servidor, con Docker:
+
+```bash
+git clone <este repo> && cd sentrya-edge-service
+cp mosquitto/broker.env.example mosquitto/broker.env
+nano mosquitto/broker.env                           # cambia las dos contraseñas
+docker compose -f docker-compose.deploy.yml up -d
+docker logs sentrya-mosquitto                       # debe terminar en "mosquitto version ... running"
+```
+
+Abre el puerto **1883/tcp** en el firewall del servidor. Hay dos usuarios: uno para el edge y otro para IoT Monitoring. Al cambiar `broker.env`, aplica los cambios con `docker compose -f docker-compose.deploy.yml up -d --force-recreate`.
+
+Luego, en el `.env` del edge:
+
+```
+MQTT_BROKER_URL=tcp://<ip-o-dominio-del-servidor>:1883
+MQTT_USERNAME=<EDGE_MQTT_USERNAME>
+MQTT_PASSWORD=<EDGE_MQTT_PASSWORD>
+```
+
+IoT Monitoring se conecta al mismo host con su propio usuario y se suscribe a `sentrya/+/+/readings`. La conexión no va cifrada (sin TLS): basta para la demo del curso; para algo más serio, hay que poner un certificado y usar `MQTT_TLS=true`.
+
 ## Pruebas automáticas
 
 ```bash
