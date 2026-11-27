@@ -9,6 +9,8 @@ from edge.shared.db import Database
 from edge.tests.fakes import FakeClock, FakeEsp32Client, FakeMqttPublisher, FakeVision
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
+# Perfiles fijos para las pruebas: los de edge/config/profiles se calibran con la maqueta.
+TEST_PROFILES_DIR = Path(__file__).resolve().parent / "profiles"
 
 DEVICES_YAML = """
 - key: temperature
@@ -85,7 +87,7 @@ def make_harness(tmp_path):
         values = {"SPACE_ID": "7", "THRESHOLD_PROFILE": "demo"}
         values.update(env)
         settings = Settings.from_env(
-            values, profiles_dir=_profiles_dir or CONFIG_DIR / "profiles",
+            values, profiles_dir=_profiles_dir or TEST_PROFILES_DIR,
             devices_path=devices, evidence_dir=tmp_path / "evidence", db_url=f"sqlite:///{db_path.as_posix()}")
         db = Database(settings.db_url)
         vision = _vision if _vision is not None else shared["vision"]

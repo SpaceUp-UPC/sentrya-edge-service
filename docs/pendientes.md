@@ -15,7 +15,7 @@ Dudas que no se resuelven solo con este repo. Mientras sigan abiertas, el códig
 
 ### Sensores
 
-- [ ] Modelo del sensor de temperatura y su intervalo mínimo (hoy `sensor_min_interval_seconds: 1` en el perfil).
+- [x] Modelo del sensor de temperatura y su intervalo mínimo: DHT22 en GPIO 4 del Nodo 3, mínimo 2 s (`sensor_min_interval_seconds: 2`). CRITICAL pide 1 s y se aplica 2 s.
 - [x] Error del DHT22: `POST /api/v1/readings` con `{ "node", "deviceKey": "humidity", "metricType": "humidity", "error": "dht22" }`, sin `value` ni `unit`. Así lo envía `firmware/node2_humedad`.
 - [ ] SA92: un `POST /api/v1/security/sound` por disparo, con el debounce hecho en la ESP32. El edge usa la hora de llegada, no `triggeredAt`.
 - [ ] Stream de la ESP32-CAM en `http://<ip>:81/stream`.
@@ -24,6 +24,9 @@ Dudas que no se resuelven solo con este repo. Mientras sigan abiertas, el códig
 
 - [ ] Cerradura: confirmar la lógica real del relé. El edge manda `unlock` con `params.pulseSeconds` solo si `LOCK_ENERGIZE_TO_UNLOCK=true`; con `false` el edge no cambia nada y la polaridad queda en manos de la ESP32. Definir quién la aplica.
 - [x] Confirmar `node-2` / `deviceKey: humidity` y que el humidificador responde a `humidifier` on/off. Probado con la maqueta: DHT22 en GPIO 4, relé en GPIO 25.
+- [ ] **Válvula (Nodo 3): falta la fuente de 12 V.** El relé K1 (IN1 en GPIO 25, módulo de 2 canales con optoacoplador y `JD-VCC` a 5 V) ya responde a `open`/`close`. Pendiente para quien armó el nodo: fuente de 12 V ≥ 1 A en los cables pelados, válvula en `COM`/`NO` (no `NC`) y diodo 1N4007 en paralelo con la válvula. La FPD-270A necesita 0,02–0,8 MPa: con un depósito sin presión puede no abrir ni cerrar del todo.
+- [ ] **Buzzer (Nodo 3): no hay.** El firmware lo simula con el LED azul (GPIO 2) y responde `simulated: true`. Si se agrega, `HAS_BUZZER true` y `PIN_BUZZER` en `config.h`.
+- [x] Ventilador (Nodo 3): transistor NPN con resistencia en GPIO 26 y diodo de protección, en lugar del IRLZ44N. PWM 0/50/100 % probado.
 - [ ] **Relé del humidificador (Nodo 2): no se suelta del todo con `off`.** El módulo es de 5 V (VCC en VIN) y la ESP32 solo lleva `IN` a ~3,3–3,9 V, así que el relé queda retenido hasta que se mueve el cable. Con VCC en 3V3 no cierra. Solución: transistor NPN (2N2222/BC547) con 1 kΩ entre D25 e `IN` y `RELAY_ACTIVE_LOW false` en `config.h`. Coordinar con quien armó el nodo.
 
 ## Equipo IoT Monitoring

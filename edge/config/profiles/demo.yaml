@@ -1,17 +1,17 @@
 # Perfil "demo": valores de la maqueta. Editar y reiniciar para calibrar.
 temperature:
-  t1_warning: 28
+  t1_warning: 30.5      # CALIBRAR: sala de pruebas ~29-29.5 C; se calienta el sensor con la mano
   t2_critical: 32
-  hysteresis: 1
+  hysteresis: 0.5
   consecutive_readings: 3
   rate_rise_enabled: false
   rate_rise_c_per_min: 8
-  sampling_seconds: {normal: 30, warning: 5, critical: 1}
-  sensor_min_interval_seconds: 1
+  sampling_seconds: {normal: 5, warning: 3, critical: 1}
+  sensor_min_interval_seconds: 2
 humidity:
-  on_below: 80        # CALIBRAR con la humedad de la sala (cuarto de pruebas ~77 %)
-  off_at: 85
-  high_above: 90      # CALIBRAR con la humedad de la sala
+  on_below: 87        # CALIBRAR con la humedad de la sala (alrededor del sensor ~84-86 %)
+  off_at: 90
+  high_above: 95      # CALIBRAR con la humedad de la sala
   high_hysteresis: 3
   consecutive_readings: 3
   read_interval_seconds: 10
