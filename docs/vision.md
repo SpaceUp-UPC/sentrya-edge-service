@@ -5,7 +5,7 @@ La visión simulada es la de por defecto. Para usar la cámara y los modelos rea
 ```
 PERSON_DETECTOR=real
 FACE_RECOGNIZER=real
-CAMERA_STREAM_URL=http://<ip-esp32cam>:81/stream
+CAMERA_STREAM_URL=auto   # o una URL fija: http://<ip-esp32cam>:81/stream
 ```
 
 Con `PERSON_DETECTOR=real` y `FACE_RECOGNIZER=mock` se usa la cámara y el detector de

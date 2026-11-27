@@ -132,6 +132,14 @@ def create_app(settings, *, clock, esp32, publisher, vision, db=None, modules=No
     return app
 
 
+def _node_ip(db, node: str) -> str | None:
+    """IP del ultimo heartbeat del nodo (para CAMERA_STREAM_URL=auto)."""
+    from edge.shared.models import NodeRow
+    with db.session() as session:
+        row = session.get(NodeRow, node)
+        return row.ip if row else None
+
+
 def build_default_app() -> Flask:
     """App de produccion: reloj, ESP32 y MQTT reales; vision segun PERSON_DETECTOR (mock por defecto)."""
     from dotenv import load_dotenv
@@ -145,8 +153,10 @@ def build_default_app() -> Flask:
     publisher = PahoPublisher(settings.mqtt_broker_url, settings.mqtt_username,
                               settings.mqtt_password, settings.mqtt_tls)
     publisher.start()
+    db = Database(settings.db_url)
+    vision = build_vision(settings, node_ip=lambda node: _node_ip(db, node))
     app = create_app(settings, clock=SystemClock(), esp32=RequestsEsp32Client(),
-                     publisher=publisher, vision=build_vision(settings),
+                     publisher=publisher, vision=vision, db=db,
                      dispatcher=ThreadDispatcher(), start_background=True)
     if settings.discovery_port:
         DiscoveryBeacon(settings.discovery_port, settings.flask_port).start()

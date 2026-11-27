@@ -128,9 +128,28 @@ class _NoPeople:
         return []
 
 
-def build_vision(settings):
+CAMERA_NODE = "node-1"
+AUTO_URL = "auto"
+
+
+def camera_url(settings, node_ip=None):
+    """URL del stream: fija (CAMERA_STREAM_URL) o, con `auto`, una funcion que arma la URL con
+    la IP del ultimo heartbeat del Nodo 1, asi un cambio de red no obliga a editar .env."""
+    if settings.camera_stream_url.strip().lower() != AUTO_URL:
+        return settings.camera_stream_url
+    if node_ip is None:
+        return ""
+
+    def resolve() -> str:
+        ip = node_ip(CAMERA_NODE)
+        return f"http://{ip}:81/stream" if ip else ""
+    return resolve
+
+
+def build_vision(settings, node_ip=None):
     """Vision segun PERSON_DETECTOR / FACE_RECOGNIZER (mock por defecto). Carga los modelos una vez.
 
+    `node_ip(node) -> ip | None` se usa con CAMERA_STREAM_URL=auto.
     Si un modelo o cv2 falta, no se cae: la vision queda degradada y la simulacion sigue.
     """
     if settings.person_detector != "real":
@@ -140,7 +159,8 @@ def build_vision(settings):
     problems = []
     try:
         from edge.security.opencv_vision import MjpegCameraSource, YoloxPersonDetector
-        source = MjpegCameraSource(settings.camera_stream_url)
+        url = camera_url(settings, node_ip)
+        source = MjpegCameraSource(url)
     except Exception as error:  # cv2 no instalado
         log.error("Vision real no disponible: %s", error)
         return CameraVision(_NoCamera(), _NoPeople(), MockFaceRecognizer(), problem=str(error))
@@ -158,7 +178,7 @@ def build_vision(settings):
         except Exception as error:
             log.error("No se pudo cargar el reconocedor facial: %s", error)
             problems.append(str(error))
-    if not settings.camera_stream_url:
+    if not url:
         problems.append("CAMERA_STREAM_URL vacio")
     return CameraVision(source, people, faces, problem="; ".join(problems) or None)
 
