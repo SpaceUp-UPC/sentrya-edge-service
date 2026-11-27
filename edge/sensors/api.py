@@ -119,7 +119,9 @@ def post_simulate_readings():
     items = body.get("readings") if isinstance(body, dict) and "readings" in body else [body]
     if not isinstance(items, list) or not items or not all(isinstance(i, dict) for i in items):
         raise ValidationError("se espera una lectura o {\"readings\": [lecturas]}")
-    results = [_edge().sensor_manager.ingest_reading(item) for item in items]
+    edge = _edge()
+    with edge.lock:  # el lote entra seguido: una lectura real no se mete entre las simuladas
+        results = [edge.sensor_manager.ingest_reading(item) for item in items]
     return jsonify(results[0] if len(items) == 1 and "readings" not in body
                    else {"readings": results}), 201
 
