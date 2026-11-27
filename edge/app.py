@@ -13,6 +13,7 @@ from edge.config.devices import load_devices
 from edge.config.settings import Settings
 from edge.rules_engine import RulesEngine
 from edge.sensors import api
+from edge.sensors.discovery import DiscoveryBeacon
 from edge.sensors.sensor_manager import SensorManager
 from edge.security import rules as security_rules
 from edge.security.camera import CameraThread, build_vision
@@ -144,9 +145,12 @@ def build_default_app() -> Flask:
     publisher = PahoPublisher(settings.mqtt_broker_url, settings.mqtt_username,
                               settings.mqtt_password, settings.mqtt_tls)
     publisher.start()
-    return create_app(settings, clock=SystemClock(), esp32=RequestsEsp32Client(),
-                      publisher=publisher, vision=build_vision(settings),
-                      dispatcher=ThreadDispatcher(), start_background=True)
+    app = create_app(settings, clock=SystemClock(), esp32=RequestsEsp32Client(),
+                     publisher=publisher, vision=build_vision(settings),
+                     dispatcher=ThreadDispatcher(), start_background=True)
+    if settings.discovery_port:
+        DiscoveryBeacon(settings.discovery_port, settings.flask_port).start()
+    return app
 
 
 def main() -> None:

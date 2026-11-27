@@ -16,3 +16,6 @@ data/
 
 # Worktrees de subagentes
 .claude/worktrees/
+
+# Firmware: credenciales Wi-Fi
+firmware/**/config.h
