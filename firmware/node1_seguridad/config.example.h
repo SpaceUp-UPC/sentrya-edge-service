@@ -40,6 +40,7 @@
 #define CAMERA_FRAME_SIZE FRAMESIZE_QVGA  // 320x240: fluido por el hotspot y suficiente para detectar personas
 #define CAMERA_JPEG_QUALITY 12            // 10-63; menor = mejor calidad
 #define CAMERA_FRAME_DELAY_MS 100         // pausa entre cuadros (~8 fps)
+#define CAMERA_MAX_CLIENTS    3           // clientes del stream a la vez (edge + visores)
 
 // Tiempos (ms)
 #define HEARTBEAT_INTERVAL_MS 10000

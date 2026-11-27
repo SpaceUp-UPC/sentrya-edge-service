@@ -97,35 +97,61 @@ bool startCamera() {
   return true;
 }
 
+#ifndef CAMERA_MAX_CLIENTS
+#define CAMERA_MAX_CLIENTS 3   // streams a la vez (edge + visores)
+#endif
+
 #define PART_BOUNDARY "123456789000000000000987654321"
 
-static esp_err_t streamHandler(httpd_req_t* req) {
+// Copia el cuadro actual a `buf` (crece si hace falta) y suelta el de la camara enseguida,
+// asi un cliente lento no le quita cuadros a los demas. Devuelve el largo o 0 si no hubo cuadro.
+static size_t grabFrame(uint8_t*& buf, size_t& cap) {
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) return 0;
+  size_t len = fb->len;
+  if (len > cap) {
+    free(buf);
+    cap = len + 4096;
+    buf = (uint8_t*)(psramFound() ? ps_malloc(cap) : malloc(cap));
+    if (!buf) { cap = 0; esp_camera_fb_return(fb); return 0; }
+  }
+  memcpy(buf, fb->buf, len);
+  esp_camera_fb_return(fb);
+  return len;
+}
+
+// Cada cliente del stream va en su propia tarea: el servidor sigue atendiendo a otros
+// (antes la camara atendia a uno solo y el resto esperaba en fila, a veces para siempre).
+static volatile int streamClients = 0;
+static portMUX_TYPE streamMux = portMUX_INITIALIZER_UNLOCKED;
+
+static void streamTask(void* arg) {
+  httpd_req_t* req = (httpd_req_t*)arg;
   char part[64];
-  esp_err_t res = httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=" PART_BOUNDARY);
-  if (res != ESP_OK) return res;
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  Serial.println("[camara] cliente conectado al stream");
+  uint8_t* buf = NULL;
+  size_t cap = 0;
   unsigned long frames = 0, startMs = millis();
   int misses = 0;
-  while (true) {
-    camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) {
+  esp_err_t res = httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=" PART_BOUNDARY);
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+  Serial.printf("[camara] cliente conectado al stream (%d en total)\n", streamClients);
+  while (res == ESP_OK) {
+    size_t len = grabFrame(buf, cap);
+    if (!len) {
       // Sin cuadro: suele ser falta de energia. Se reintenta antes de cortar.
       Serial.printf("[camara] no llego el cuadro (%d seguidos)\n", ++misses);
-      if (misses >= 10) { res = ESP_FAIL; break; }
+      if (misses >= 10) break;
       delay(100);
       continue;
     }
     misses = 0;
     size_t hlen = snprintf(part, sizeof(part),
-                           "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", fb->len);
+                           "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", len);
     res = httpd_resp_send_chunk(req, "\r\n--" PART_BOUNDARY "\r\n", strlen("\r\n--" PART_BOUNDARY "\r\n"));
     if (res == ESP_OK) res = httpd_resp_send_chunk(req, part, hlen);
-    if (res == ESP_OK) res = httpd_resp_send_chunk(req, (const char*)fb->buf, fb->len);
-    size_t len = fb->len;
-    esp_camera_fb_return(fb);
+    if (res == ESP_OK) res = httpd_resp_send_chunk(req, (const char*)buf, len);
     if (res != ESP_OK) {
-      Serial.printf("[camara] fallo el envio de un cuadro de %u bytes (red o navegador cerrado)\n", len);
+      Serial.printf("[camara] fallo el envio de un cuadro de %u bytes (red o cliente cerrado)\n", len);
       break;
     }
     if (++frames % 100 == 0) {
@@ -134,22 +160,53 @@ static esp_err_t streamHandler(httpd_req_t* req) {
     }
     delay(CAMERA_FRAME_DELAY_MS);   // limita los fps para no saturar el hotspot
   }
+  free(buf);
+  httpd_req_async_handler_complete(req);   // cierra la conexion
+  portENTER_CRITICAL(&streamMux);
+  streamClients--;
+  portEXIT_CRITICAL(&streamMux);
   Serial.println("[camara] cliente desconectado del stream");
-  return res;
+  vTaskDelete(NULL);
 }
 
-// Una foto suelta. La usa el visor de "/" y sirve para revisar la camara.
+static esp_err_t streamHandler(httpd_req_t* req) {
+  portENTER_CRITICAL(&streamMux);
+  bool full = streamClients >= CAMERA_MAX_CLIENTS;
+  if (!full) streamClients++;
+  portEXIT_CRITICAL(&streamMux);
+  if (full) {
+    Serial.println("[camara] stream rechazado: ya hay demasiados clientes");
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    return httpd_resp_send(req, "demasiados clientes", HTTPD_RESP_USE_STRLEN);
+  }
+  httpd_req_t* copy = NULL;
+  if (httpd_req_async_handler_begin(req, &copy) != ESP_OK ||
+      xTaskCreate(streamTask, "stream", 6144, copy, 5, NULL) != pdPASS) {
+    if (copy) httpd_req_async_handler_complete(copy);
+    portENTER_CRITICAL(&streamMux);
+    streamClients--;
+    portEXIT_CRITICAL(&streamMux);
+    Serial.println("[camara] no se pudo iniciar el stream (memoria)");
+    return ESP_FAIL;
+  }
+  return ESP_OK;
+}
+
+// Una foto suelta, para revisar la camara.
 static esp_err_t captureHandler(httpd_req_t* req) {
-  camera_fb_t* fb = esp_camera_fb_get();
-  if (!fb) {
+  uint8_t* buf = NULL;
+  size_t cap = 0;
+  size_t len = grabFrame(buf, cap);
+  if (!len) {
+    free(buf);
     httpd_resp_send_500(req);
     return ESP_FAIL;
   }
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  esp_err_t res = httpd_resp_send(req, (const char*)fb->buf, fb->len);
-  esp_camera_fb_return(fb);
+  esp_err_t res = httpd_resp_send(req, (const char*)buf, len);
+  free(buf);
   return res;
 }
 
@@ -195,7 +252,7 @@ void startStreamServer() {
   // y el cliente (el edge o el visor) vuelve a conectar enseguida.
   config.send_wait_timeout = 5;
   config.recv_wait_timeout = 5;
-  config.lru_purge_enable = true;   // si se acaban los sockets, cierra el mas viejo
+  config.max_open_sockets = CAMERA_MAX_CLIENTS + 3;   // los streams + visor, fotos y reconexiones
   httpd_uri_t stream = {};
   stream.uri = "/stream";
   stream.method = HTTP_GET;
